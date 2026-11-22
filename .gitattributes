@@ -1,0 +1,6 @@
+docs/protocol-testvectors.json text eol=lf
+*.ts text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+*.wxss text eol=lf
+*.wxml text eol=lf

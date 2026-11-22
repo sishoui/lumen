@@ -1,0 +1,6 @@
+<view class="page">
+  <view class="page-title">场景编辑器（场景 {{sceneId + 1}}）</view>
+  <view class="card">
+    <view class="shell-placeholder">骨架壳：每部位时间轴（步数/每步时长/两层灯效）交互留待 sketch 之后实现</view>
+  </view>
+</view>

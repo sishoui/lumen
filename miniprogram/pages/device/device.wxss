@@ -1,0 +1,4 @@
+/* 设备页样式（骨架）。 */
+.device-card:last-child {
+  margin-bottom: 0;
+}

@@ -1,0 +1,5 @@
+{
+  "usingComponents": {
+    "log-panel": "/components/log-panel/log-panel"
+  }
+}
