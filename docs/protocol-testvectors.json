@@ -1,0 +1,226 @@
+{
+  "protocol_version": 5,
+  "firmware_version": "0100",
+  "magic": "0xA6",
+  "crc16": "CCITT-FALSE poly 0x1021 init 0xFFFF, no reflect, no xorout",
+  "frame_layout": "magic(1) version(1) command(1) seq(1) length(2 LE) payload(length) crc16(2 LE)",
+  "chunk_layout": "ctrl(1) data(<=179); ctrl bit7=FIRST bit6=LAST bits5..0=chunk index",
+  "cases": [
+    {
+      "name": "set_power_on",
+      "direction": "app_to_device",
+      "command": 1,
+      "command_name": "SetPower",
+      "seq": 1,
+      "payload_hex": "01",
+      "payload_len": 1,
+      "frame_hex": "A6050101010001112D",
+      "frame_len": 9,
+      "chunks_hex": [
+        "C0A6050101010001112D"
+      ],
+      "frame_valid": true,
+      "result_code": 0
+    },
+    {
+      "name": "set_power_off",
+      "direction": "app_to_device",
+      "command": 1,
+      "command_name": "SetPower",
+      "seq": 2,
+      "payload_hex": "00",
+      "payload_len": 1,
+      "frame_hex": "A6050102010000ECA6",
+      "frame_len": 9,
+      "chunks_hex": [
+        "C0A6050102010000ECA6"
+      ],
+      "frame_valid": true,
+      "result_code": 0
+    },
+    {
+      "name": "set_power_bad_value",
+      "direction": "app_to_device",
+      "command": 1,
+      "command_name": "SetPower",
+      "seq": 3,
+      "payload_hex": "02",
+      "payload_len": 1,
+      "frame_hex": "A60501030100021AF0",
+      "frame_len": 9,
+      "chunks_hex": [
+        "C0A60501030100021AF0"
+      ],
+      "frame_valid": false,
+      "result_code": 1,
+      "note": "power 只允许 0/1，取值越界回 InvalidParam"
+    },
+    {
+      "name": "set_brightness_128",
+      "direction": "app_to_device",
+      "command": 2,
+      "command_name": "SetBrightness",
+      "seq": 4,
+      "payload_hex": "80",
+      "payload_len": 1,
+      "frame_hex": "A60502040100802FFE",
+      "frame_len": 9,
+      "chunks_hex": [
+        "C0A60502040100802FFE"
+      ],
+      "frame_valid": true,
+      "result_code": 0
+    },
+    {
+      "name": "set_brightness_0",
+      "direction": "app_to_device",
+      "command": 2,
+      "command_name": "SetBrightness",
+      "seq": 5,
+      "payload_hex": "00",
+      "payload_len": 1,
+      "frame_hex": "A60502050100001319",
+      "frame_len": 9,
+      "chunks_hex": [
+        "C0A60502050100001319"
+      ],
+      "frame_valid": true,
+      "result_code": 0
+    },
+    {
+      "name": "query_state",
+      "direction": "app_to_device",
+      "command": 5,
+      "command_name": "QueryState",
+      "seq": 6,
+      "payload_hex": "",
+      "payload_len": 0,
+      "frame_hex": "A605050600006B4F",
+      "frame_len": 8,
+      "chunks_hex": [
+        "C0A605050600006B4F"
+      ],
+      "frame_valid": true,
+      "result_code": 0
+    },
+    {
+      "name": "retired_set_color",
+      "direction": "app_to_device",
+      "command": 3,
+      "command_name": "SetColor",
+      "seq": 7,
+      "payload_hex": "FF0000",
+      "payload_len": 3,
+      "frame_hex": "A60503070300FF00007823",
+      "frame_len": 11,
+      "chunks_hex": [
+        "C0A60503070300FF00007823"
+      ],
+      "frame_valid": false,
+      "result_code": 2,
+      "note": "0x03 已退役：信封完好但命令字不收，回 UnknownCommand"
+    },
+    {
+      "name": "bad_magic",
+      "direction": "app_to_device",
+      "command": 1,
+      "command_name": "SetPower",
+      "seq": 8,
+      "payload_hex": "01",
+      "payload_len": 1,
+      "frame_hex": "A50501080100010000",
+      "frame_len": 9,
+      "chunks_hex": [
+        "C0A50501080100010000"
+      ],
+      "frame_valid": false,
+      "result_code": 8,
+      "note": "magic 0xA5：magic 先于 CRC 校验，CRC 位填 0"
+    },
+    {
+      "name": "bad_version",
+      "direction": "app_to_device",
+      "command": 1,
+      "command_name": "SetPower",
+      "seq": 9,
+      "payload_hex": "01",
+      "payload_len": 1,
+      "frame_hex": "A60401090100010000",
+      "frame_len": 9,
+      "chunks_hex": [
+        "C0A60401090100010000"
+      ],
+      "frame_valid": false,
+      "result_code": 7,
+      "note": "version 0x04：v5 固件只收 0x05，回 UnsupportedVersion"
+    },
+    {
+      "name": "bad_length",
+      "direction": "app_to_device",
+      "command": 1,
+      "command_name": "SetPower",
+      "seq": 10,
+      "payload_hex": "01",
+      "payload_len": 1,
+      "frame_hex": "A605010AC800010E33",
+      "frame_len": 9,
+      "chunks_hex": [
+        "C0A605010AC800010E33"
+      ],
+      "frame_valid": false,
+      "result_code": 4,
+      "note": "length 声明 200 但实际只有 1 字节载荷，回 BadLength"
+    },
+    {
+      "name": "bad_checksum",
+      "direction": "app_to_device",
+      "command": 1,
+      "command_name": "SetPower",
+      "seq": 11,
+      "payload_hex": "01",
+      "payload_len": 1,
+      "frame_hex": "A605010B010001BABA",
+      "frame_len": 9,
+      "chunks_hex": [
+        "C0A605010B010001BABA"
+      ],
+      "frame_valid": false,
+      "result_code": 3,
+      "note": "CRC 高字节被篡改，回 BadChecksum"
+    },
+    {
+      "name": "ack_ok",
+      "direction": "device_to_app",
+      "command": 128,
+      "command_name": "ACK",
+      "seq": 1,
+      "payload_hex": "0100",
+      "payload_len": 2,
+      "frame_hex": "A60580010200010093EE",
+      "frame_len": 10,
+      "chunks_hex": [
+        "C0A60580010200010093EE"
+      ],
+      "frame_valid": true,
+      "result_code": 0,
+      "note": "对 set_power_on（seq 1）的 ACK：原命令字 0x01 + 结果码 0x00 OK"
+    },
+    {
+      "name": "ack_invalid_param",
+      "direction": "device_to_app",
+      "command": 128,
+      "command_name": "ACK",
+      "seq": 3,
+      "payload_hex": "0101",
+      "payload_len": 2,
+      "frame_hex": "A60580030200010131BA",
+      "frame_len": 10,
+      "chunks_hex": [
+        "C0A60580030200010131BA"
+      ],
+      "frame_valid": true,
+      "result_code": 0,
+      "note": "对 set_power_bad_value（seq 3）的 ACK：原命令字 0x01 + 结果码 0x01 InvalidParam"
+    }
+  ]
+}

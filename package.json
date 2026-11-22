@@ -1,0 +1,24 @@
+{
+  "name": "bt-light",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Lumen 灯控系统：微信小程序 BLE 直连 ESP32-C3FH4 驱动 WS2812B 灯带",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "gen:vectors": "node scripts/gen-protocol-testvectors.mjs",
+    "gen:vectors:check": "node scripts/gen-protocol-testvectors.mjs --check",
+    "check:vectors": "node scripts/check-protocol-testvectors.mjs",
+    "test:firmware": "node -e \"const{existsSync}=require('fs');const{spawnSync}=require('child_process');if(!existsSync('firmware/test/run-tests.cmd')){console.log('SKIPPED: 固件层未落地（firmware/test/run-tests.cmd 不存在）');process.exit(0)}const r=spawnSync('cmd',['/c','firmware\\\\test\\\\run-tests.cmd'],{stdio:'inherit'});process.exit(r.status??1)\"",
+    "test:mp": "node -e \"const{existsSync}=require('fs');const{spawnSync}=require('child_process');if(!existsSync('miniprogram/tests')){console.log('SKIPPED: 小程序层未落地（miniprogram/tests 不存在）');process.exit(0)}const r=spawnSync('npx',['vitest','run'],{stdio:'inherit',shell:true});process.exit(r.status??1)\"",
+    "test:server": "node -e \"const{existsSync}=require('fs');const{spawnSync}=require('child_process');if(!existsSync('server/package.json')){console.log('SKIPPED: 后端层未落地（server/package.json 不存在）');process.exit(0)}const r=spawnSync('npm',['--prefix','server','run','test'],{stdio:'inherit',shell:true});process.exit(r.status??1)\"",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "npm run check:vectors && npm run gen:vectors:check && node -e \"const{existsSync}=require('fs');const{spawnSync}=require('child_process');const layers=[['固件','test:firmware','firmware/test/run-tests.cmd'],['小程序','test:mp','miniprogram/tests'],['后端','test:server','server/package.json']];const skipped=[];for(const[name,script,entry]of layers){if(!existsSync(entry)){console.log('SKIP  '+name+'层未落地（'+entry+' 不存在）');skipped.push(name);continue}const r=spawnSync('npm',['run',script],{stdio:'inherit',shell:true});if(r.status!==0){console.log('FAIL  '+name+'层');process.exit(1)}}if(skipped.length){console.log('');console.log('结论：⚠️ 未全验证（'+skipped.join('、')+'层未落地）')}else{console.log('');console.log('结论：✅ 全部层通过')}\""
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.0"
+  }
+}
