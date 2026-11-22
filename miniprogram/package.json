@@ -7,7 +7,11 @@
     "test": "node test/protocol.test.js",
     "test:ui": "node test/ui-flow.js",
     "test:link": "python test/pc-central.py",
-    "test:all": "npm run test && npm run test:ui"
+    "test:contract": "node test/contract.test.js",
+    "test:all": "npm run test && npm run test:contract",
+    "report": "npm run test:all",
+    "changelog": "git-cliff --config ../cliff.toml -o ../CHANGELOG.md",
+    "dashboard": "node ../scripts/gen-dashboard.js"
   },
   "keywords": [],
   "author": "",

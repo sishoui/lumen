@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>bt-light 项目工作台</title>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif; margin: 0; background: #121212; color: #eee; }
+  header { background: #1e1e1e; padding: 16px 24px; border-bottom: 1px solid #333; }
+  header h1 { margin: 0; font-size: 20px; }
+  header .sub { color: #999; font-size: 13px; margin-top: 4px; }
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 24px; }
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 24px; }
+  .card { background: #1e1e1e; border: 1px solid #333; border-radius: 8px; padding: 16px; }
+  .card .num { font-size: 32px; font-weight: 600; }
+  .card .label { color: #999; font-size: 13px; margin-top: 4px; }
+  .card.pass .num { color: #4ade80; }
+  .card.fail .num { color: #f87171; }
+  .card a { color: #60a5fa; text-decoration: none; }
+  h2 { font-size: 16px; margin: 28px 0 12px; color: #ccc; }
+  table { width: 100%; border-collapse: collapse; background: #1e1e1e; border-radius: 8px; overflow: hidden; }
+  th, td { text-align: left; padding: 10px 14px; border-bottom: 1px solid #333; font-size: 14px; }
+  th { background: #252525; color: #aaa; font-weight: 500; }
+  tr:last-child td { border-bottom: none; }
+  code { background: #2a2a2a; padding: 2px 6px; border-radius: 4px; font-size: 12px; }
+  .toolbar { margin: 20px 0; display: flex; gap: 10px; flex-wrap: wrap; }
+  .toolbar a, .toolbar button { background: #2a2a2a; color: #eee; border: 1px solid #444; padding: 8px 14px; border-radius: 6px; cursor: pointer; text-decoration: none; font-size: 13px; }
+  .toolbar a:hover, .toolbar button:hover { background: #333; }
+  footer { color: #666; font-size: 12px; text-align: center; padding: 24px; }
+  .empty { color: #666; padding: 20px; text-align: center; }
+</style>
+</head>
+<body>
+<header>
+  <h1>bt-light 项目工作台</h1>
+  <div class="sub">最后一次生成: 2026/11/22 23:52:20 · 数据来源: git log + npm test + docs/contract.json</div>
+</header>
+<div class="wrap">
+  <div class="grid">
+    <div class="card pass">
+      <div class="num">34</div>
+      <div class="label">测试通过 (34 项)</div>
+    </div>
+    <div class="card pass">
+      <div class="num">0</div>
+      <div class="label">测试失败</div>
+    </div>
+    <div class="card">
+      <div class="num">1</div>
+      <div class="label">git 提交数 (近 30 条)</div>
+    </div>
+  </div>
+
+  <div class="toolbar">
+    <a href="http://localhost:3001/view?path=C%3A%5CUsers%5C13092%5CDesktop%5Cproject%5Cbt-light%5Cbt-light" target="_blank">① 打开 git-truck 可视化</a>
+    <button onclick="location.reload()">② 刷新本页</button>
+    <a href="file:///C:/Users/13092/Desktop/project/bt-light/bt-light/CHANGELOG.md" target="_blank">③ 查看 CHANGELOG 时间线</a>
+    <button onclick="navigator.clipboard.writeText('cd C:/Users/13092/Desktop/project/bt-light/bt-light && npx -y git-truck --headless').then(()=>alert('已复制 git-truck 启动命令'))">④ 复制 git-truck 启动命令</button>
+  </div>
+
+  <h2>BLE 契约（docs/contract.json）</h2>
+  <table>
+    <tr><th>项</th><th>值</th></tr>
+    <tr><td>广播名前缀</td><td>BT-</td></tr><tr><td>广播名</td><td>BT-Light-01</td></tr><tr><td>Service</td><td>0000FFE0-0000-1000-8000-00805F9B34FB</td></tr><tr><td>Write</td><td>0000FFE1-0000-1000-8000-00805F9B34FB</td></tr><tr><td>Notify</td><td>0000FFE2-0000-1000-8000-00805F9B34FB</td></tr><tr><td>命令</td><td>b<0-255> → 设置亮度；s<1-100> → 设置流水速度；p<0|1> → 相位：0=同相位(瀑布) 1=错相位(波浪)；r → 重置灯效；? → 查询当前状态；h → 帮助</td></tr><tr><td>状态报文格式</td><td>b<亮度> s<速度> p<相位>\n</td></tr><tr><td>示例</td><td>b128 s50 p0
+</td></tr>
+  </table>
+
+  <h2>最近改动（git log）</h2>
+  <table>
+    <tr><th>hash</th><th>日期</th><th>说明</th></tr>
+    <tr><td><code>f3d6ebe</code></td><td>2026-11-22</td><td>chore: 初始基线 — bt-light 项目当前状态（固件+小程序+测试+文档）</td></tr>
+  </table>
+
+  <h2>测试输出摘要</h2>
+  <pre style="background:#1e1e1e;padding:16px;border-radius:8px;overflow:auto;font-size:12px;color:#bbb;">
+=== L1 协议单测 ===
+
+=== L2 Mock 模式测试 ===
+[BLE MOCK] connect mock1
+[BLE MOCK] startScan
+
+=== L3 页面逻辑测试 ===
+  PASS  连接页 onLoad 初始化
+  PASS  控制页 onLoad 初始化
+[BLE MOCK] send: "b200\n"
+  PASS  控制页亮度 handler
+[BLE MOCK] send: "p1\n"
+  PASS  控制页相位 handler
+  PASS  Mock 连接成功
+  PASS  Mock 扫描返回设备
+
+========================================
+  13 passed, 0 failed
+========================================
+=== 契约比对（src/main.cpp vs docs/contract.json vs miniprogram/utils）===
+  PASS  固件 Service UUID 与契约一致
+  PASS  固件 Write UUID 与契约一致
+  PASS  固件 Notify UUID 与契约一致
+  PASS  固件 广播名前缀 与契约一致
+  PASS  小程序 config.js Service UUID 与契约一致
+  PASS  小程序 config.js Write UUID 与契约一致
+  PASS  小程序 config.js Notify UUID 与契约一致
+  PASS  小程序 config.js 广播名前缀 与契约一致
+  PASS  固件 handleCommand 有 b 分支
+  PASS  固件 handleCommand 有 s 分支
+  PASS  固件 handleCommand 有 p 分支
+  PASS  固件 handleCommand 有 r 分支
+  PASS  固件 handleCommand 有 ? 分支
+  PASS  固件 handleCommand 有 h 分支
+  PASS  小程序 cmd.setBrightness 发 b 命令
+  PASS  小程序 cmd.setSpeed 发 s 命令
+  PASS  小程序 cmd.setPhase 发 p 命令
+  PASS  小程序 cmd.reset 发 r 命令
+  PASS  小程序 cmd.query 发 ? 命令
+  PASS  固件 notifyStatus 格式 b..s..p.. 与契约一致
+  PASS  小程序 parseStatus 正则与契约一致
+
+========================================
+  21 passed, 0 failed
+========================================
+</pre>
+</div>
+<footer>bt-light dashboard · 由 scripts/gen-dashboard.js 自动生成 · 不要手动编辑</footer>
+</body>
+</html>

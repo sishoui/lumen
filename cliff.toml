@@ -1,0 +1,32 @@
+# git-cliff 中文配置 — 把 git 提交渲染成中文改动时间线
+# 用法: git-cliff --config cliff.toml -o CHANGELOG.md
+[changelog]
+header = """
+# 改动时间线\n\n本文件由 git-cliff 根据 git 提交自动生成。每次 AI 改完后 commit，这里就会多出对应的条目。\n"""
+body = """
+{% if version %}## {{ version }} - {{ timestamp | date(format="%Y-%m-%d") }}{% else %}## 未发布{% endif %}
+{% for group, commits in commits | group_by(attribute="group") %}
+### {{ group | upper_first }}
+{% for commit in commits %}
+- {{ commit.message | upper_first | trim }}
+{% endfor %}
+{% endfor %}
+"""
+trim = true
+
+[git]
+conventional_commits = true
+filter_unconventional = true
+commit_parsers = [
+  { message = "^feat", group = "新增功能" },
+  { message = "^fix", group = "修复问题" },
+  { message = "^perf", group = "性能优化" },
+  { message = "^refactor", group = "重构" },
+  { message = "^docs", group = "文档" },
+  { message = "^test", group = "测试" },
+  { message = "^chore", group = "杂项/基线" },
+  { message = "^style", group = "格式调整" },
+  { message = "^ci", group = "构建/CI" },
+  { message = "^build", group = "构建" },
+  { message = "^revert", group = "回滚" },
+]
