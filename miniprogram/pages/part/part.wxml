@@ -1,0 +1,6 @@
+<view class="page">
+  <view class="page-title">部位编辑器（链 {{stripId}}）</view>
+  <view class="card">
+    <view class="shell-placeholder">骨架壳：拖选方格与时间轴交互留待 sketch 之后实现</view>
+  </view>
+</view>

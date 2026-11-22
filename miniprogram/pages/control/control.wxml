@@ -1,0 +1,55 @@
+<view class="page">
+  <view class="page-title">控制</view>
+
+  <view wx:if="{{!state}}" class="card">
+    <view class="shell-placeholder">未连接设备，请先到「设备」页连接</view>
+  </view>
+
+  <block wx:else>
+    <view class="card">
+      <view class="row">
+        <text class="label">整机开关</text>
+        <switch checked="{{state.power}}" bindchange="onPowerChange" />
+      </view>
+      <view class="row">
+        <text class="label">亮度</text>
+        <text class="value">{{state.brightness}} / {{state.maxBrightness}}</text>
+      </view>
+      <slider min="0" max="{{state.maxBrightness}}" value="{{state.brightness}}"
+        bindchanging="onBrightnessChanging" bindchange="onBrightnessChange" block-size="20" />
+    </view>
+
+    <view class="card">
+      <view class="row">
+        <text class="label">链开关与灯珠数</text>
+      </view>
+      <view wx:for="{{stripRows}}" wx:key="stripId" class="row">
+        <text class="label">链 {{item.stripId}}</text>
+        <text class="value">{{item.ledCount}} 颗</text>
+        <switch checked="{{item.on}}" bindchange="onStripPowerChange" data-strip="{{item.stripId}}" />
+      </view>
+    </view>
+
+    <view class="card">
+      <view class="row">
+        <text class="label">场景</text>
+        <text class="value">当前 {{state.activeScene + 1}}</text>
+      </view>
+      <view class="row">
+        <view class="button" bindtap="onPartEditorTap">部位编辑器</view>
+        <view class="button secondary" bindtap="onSceneEditorTap">场景编辑器</view>
+      </view>
+      <view class="row">
+        <view class="button secondary" bindtap="onSelfTestTap">自检</view>
+      </view>
+    </view>
+
+    <view class="card">
+      <view class="row" bindtap="onVersionTap">
+        <text class="hint">版本 v{{firmwareVersion}}（连点 5 次看日志）</text>
+      </view>
+    </view>
+  </block>
+
+  <log-panel wx:if="{{logVisible}}" />
+</view>

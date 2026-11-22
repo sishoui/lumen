@@ -1,0 +1,18 @@
+<view class="log-panel">
+  <view class="log-header">
+    <text class="log-title">帧日志（{{entries.length}}/{{capacity}}）</text>
+    <view class="log-actions">
+      <text class="log-action" bindtap="onPause">⏸</text>
+      <text class="log-action" bindtap="onClear">清空</text>
+      <text class="log-action" bindtap="onCopy">复制</text>
+    </view>
+  </view>
+  <scroll-view scroll-y class="log-body">
+    <view wx:for="{{entries}}" wx:key="id" class="log-row">
+      <text class="log-dir {{item.dir}}">{{item.dir === 'tx' ? '→' : '←'}}</text>
+      <text class="log-seq">{{item.seqText}}</text>
+      <text class="log-name">{{item.commandName}}</text>
+      <text class="log-hex">{{item.hex}}</text>
+    </view>
+  </scroll-view>
+</view>
