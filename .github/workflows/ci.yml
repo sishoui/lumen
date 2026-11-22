@@ -1,0 +1,44 @@
+# CI 硬 gate（工单 #16）。
+#
+# 必跑面 = npm test 整条链，是工单 #4 决策 4 层 2 四项必跑面
+# （check:vectors + gen:vectors:check + L1 + L2）的超集（#7 追加 L3 + #16 追加 test:runner）。
+#
+# 为什么 windows-latest 而不是 ubuntu：
+#   L1 的 run-tests.cmd 是 cmd.exe 脚本（工单 #5 锁定），只能在 Windows 跑。
+#   不引入第二份 .sh 脚本（双份是漂移源），单一入口优于维护两份。
+#
+# 为什么 choco mingw 兜底：
+#   runner 镜像一般自带 gcc，choco install mingw 是兜底路径。
+#   首个 PR 在真实 runner 上验证 gcc 可用性。
+#
+# L4/L5 不在 CI 跑（无微信开发者工具 / 无真机），SKIP 可见性由本地 --release 报告证明。
+
+name: CI
+
+on:
+  push:
+    branches: [main, "skeleton/*"]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: 兜底装 mingw（gcc 不可用时）
+        run: gcc --version || choco install mingw --yes
+
+      - name: 安装根依赖
+        run: npm ci
+
+      - name: 安装 server 依赖
+        run: npm ci --prefix server
+
+      - name: 跑全链测试（check:vectors + gen --check + L1 + L2 + L3 + runner 自测）
+        run: npm test

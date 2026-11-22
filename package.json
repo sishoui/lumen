@@ -16,7 +16,8 @@
     "test:ui": "node scripts/verify-ui.mjs",
     "test:ui:probe": "node scripts/verify-ui.mjs --probe",
     "typecheck": "tsc -p tsconfig.json",
-    "test": "npm run check:vectors && npm run gen:vectors:check && node -e \"const{existsSync}=require('fs');const{spawnSync}=require('child_process');const layers=[['固件','test:firmware','firmware/test/run-tests.cmd'],['小程序','test:mp','miniprogram/tests'],['后端','test:server','server/package.json']];const skipped=[];for(const[name,script,entry]of layers){if(!existsSync(entry)){console.log('SKIP  '+name+'层未落地（'+entry+' 不存在）');skipped.push(name);continue}const r=spawnSync('npm',['run',script],{stdio:'inherit',shell:true});if(r.status!==0){console.log('FAIL  '+name+'层');process.exit(1)}}if(skipped.length){console.log('');console.log('结论：⚠️ 未全验证（'+skipped.join('、')+'层未落地）')}else{console.log('');console.log('结论：✅ 全部层通过')}\""
+    "test:runner": "node --test scripts/tests/test-run.test.mjs",
+    "test": "npm run check:vectors && npm run gen:vectors:check && node scripts/test-run.mjs && npm run test:runner"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

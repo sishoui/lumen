@@ -1,0 +1,150 @@
+{
+  "version": 1,
+  "layers": {
+    "firmware": {
+      "label": "固件 host 单测",
+      "cheap": true,
+      "requires": [
+        "gcc",
+        "node"
+      ],
+      "missingHint": "缺 gcc 或 node",
+      "scan": [
+        "firmware/test/test_protocol.c",
+        "scripts/check-protocol-testvectors.mjs"
+      ]
+    },
+    "mp": {
+      "label": "小程序单测",
+      "cheap": true,
+      "requires": [],
+      "missingHint": "",
+      "scan": [
+        "miniprogram/tests/*.test.ts"
+      ]
+    },
+    "server": {
+      "label": "后端单测",
+      "cheap": true,
+      "requires": [],
+      "missingHint": "",
+      "scan": [
+        "server/tests/*.test.ts"
+      ]
+    },
+    "ui": {
+      "label": "渲染回归",
+      "cheap": false,
+      "requires": [
+        "微信开发者工具 + 自动化端口"
+      ],
+      "missingHint": "缺微信开发者工具自动化端口",
+      "scan": []
+    },
+    "ble": {
+      "label": "真机 e2e",
+      "cheap": false,
+      "requires": [
+        "ESP32 真机",
+        "bleak",
+        "python"
+      ],
+      "missingHint": "缺真机或 bleak",
+      "scan": [
+        "miniprogram/tests/e2e/*.test.ts"
+      ]
+    }
+  },
+  "files": {
+    "scripts/check-protocol-testvectors.mjs": {
+      "layer": "firmware",
+      "covers": "向量文件与 docs/protocol.md 契约的独立一致性校验：帧宽 / magic / version、命令表载荷宽度、帧内长度与 CRC 自洽、结果码域、分片规则。不走生成器，专门抓生成器的错",
+      "ticket": "#4"
+    },
+    "firmware/test/test_protocol.c": {
+      "layer": "firmware",
+      "covers": "固件 host 单测：docs/protocol-testvectors.json 逐 case 断言产品代码 encode/decode 输出 vs frame_hex / payload_hex，CRC16 KAT，协议版本宏 vs JSON protocol_version，分片重组边界",
+      "ticket": "#12"
+    },
+    "miniprogram/tests/ack-waiters.test.ts": {
+      "layer": "mp",
+      "covers": "ACK 等待表：seq 匹配 / 超时 / 断线清空",
+      "ticket": "#13"
+    },
+    "miniprogram/tests/boundary.test.ts": {
+      "layer": "mp",
+      "covers": "边界测试（源码扫描）：session/ 下不出现 mock 分支（无 if (mock) / import.*mock）；全仓 wx. 只出现在 utils/ble/ 下",
+      "ticket": "#13"
+    },
+    "miniprogram/tests/frame-chunk.test.ts": {
+      "layer": "mp",
+      "covers": "帧边界 / 分片重组边界",
+      "ticket": "#13"
+    },
+    "miniprogram/tests/mock-scenarios.test.ts": {
+      "layer": "mp",
+      "covers": "Mock 场景：normal / slow / flaky / offline 四场景行为",
+      "ticket": "#13"
+    },
+    "miniprogram/tests/protocol.test.ts": {
+      "layer": "mp",
+      "covers": "协议向量断言（工单 #4 / #6 决策 9）：readFileSync + JSON.parse 同一份 docs/protocol-testvectors.json；断言对象是产品代码 encodeFrame/decodeFrame 输出 vs frame_hex / payload_hex；PROTOCOL_VERSION 常量 vs JSON protocol_version",
+      "ticket": "#4"
+    },
+    "miniprogram/tests/rebuild.test.ts": {
+      "layer": "mp",
+      "covers": "权威重建编排顺序与部分失败降级",
+      "ticket": "#13"
+    },
+    "miniprogram/tests/reconnect.test.ts": {
+      "layer": "mp",
+      "covers": "ReconnectSupervisor：1s/2s/4s 退避 + 耗尽",
+      "ticket": "#13"
+    },
+    "miniprogram/tests/session.test.ts": {
+      "layer": "mp",
+      "covers": "会话全链路（MockTransport）：connect → 重建 → 命令 → disconnect",
+      "ticket": "#13"
+    },
+    "miniprogram/tests/throttle.test.ts": {
+      "layer": "mp",
+      "covers": "20Hz latest-wins（vitest 假计时器）",
+      "ticket": "#13"
+    },
+    "miniprogram/tests/transport-conformance.test.ts": {
+      "layer": "mp",
+      "covers": "Transport 同形：同一断言体对两个实现各跑一遍。能替换实现而测试不改一字——这是「同形」的可执行定义",
+      "ticket": "#13"
+    },
+    "miniprogram/tests/writer.test.ts": {
+      "layer": "mp",
+      "covers": "SerialWriter 串行化（假 sendOne）",
+      "ticket": "#13"
+    },
+    "server/tests/aggregation.test.ts": {
+      "layer": "server",
+      "covers": "使用日志的聚合查询与视图数据（makeHarness 内存 SQLite + fastify.inject）",
+      "ticket": "#14"
+    },
+    "server/tests/api.test.ts": {
+      "layer": "server",
+      "covers": "HTTP 路由与鉴权契约：双鉴权（APP_TOKEN / ADMIN_PASSWORD）与 405 只读拒绝",
+      "ticket": "#14"
+    },
+    "server/tests/identity.test.ts": {
+      "layer": "server",
+      "covers": "device_key 归一：广播名 / 硬件 ID / MAC 的规范化与解析",
+      "ticket": "#14"
+    },
+    "server/tests/readonly.test.ts": {
+      "layer": "server",
+      "covers": "只读看板对写方法的拒绝",
+      "ticket": "#14"
+    },
+    "server/tests/schema.test.ts": {
+      "layer": "server",
+      "covers": "两表两视图结构与迁移：SCHEMA_SQL / MIGRATIONS / user_version",
+      "ticket": "#14"
+    }
+  }
+}
