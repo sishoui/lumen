@@ -1,0 +1,6 @@
+# bt-light 分区表（docs/protocol.md + 工单 #5 resolution）。
+# 4MB flash。NVS 64KB（state 32B + layout 4KB + scene 12KB + 磨损均衡），app 0x3E0000。
+# Name,   Type, SubType, Offset,   Size,     Flags
+nvs,      data, nvs,     0x9000,   0x10000,
+phy_init, data, phy,     0x19000,  0x1000,
+factory,  app,  factory, 0x20000,  0x3E0000,

@@ -1,0 +1,35 @@
+idf_component_register(
+    SRCS
+        "app_main.c"
+        "ble_link.c"
+        "chunk_reasm.c"
+        "command.c"
+        "effects.c"
+        "gamma.c"
+        "led_count_job.c"
+        "led_engine.c"
+        "led_render.c"
+        "led_strip_owner.c"
+        "layout_store.c"
+        "protocol.c"
+        "save_scheduler.c"
+        "scene_compose.c"
+        "scene_store.c"
+        "selftest.c"
+        "state.c"
+        "state_blob.c"
+        "state_store.c"
+        "strip_planar.c"
+        "strip_power.c"
+    INCLUDE_DIRS "."
+    REQUIRES
+        bt
+        nvs_flash
+        esp_driver_rmt
+        esp_hw_support
+        esp_system
+        esp_timer
+        heap
+        freertos
+        log
+)

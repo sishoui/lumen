@@ -1,0 +1,67 @@
+menu "Lumen"
+
+    config LUMEN_STRIP_PINS
+        string "灯带引脚列表（逗号分隔，1-8 个）"
+        default "3,10,0,1,4,5,6,7"
+        help
+            第 0 条灯带的数据脚在第一项；后续项是第 1..7 条。
+
+            默认 "3,10,0,1,4,5,6,7" 是 8 路骨架（spec §4.1 已验证接线）。
+            引脚不能重复（否则两条灯带无法区分，初始化会拒绝并退回单灯带）。
+            禁用/慎用：GPIO12-17（封装内 flash）、GPIO11（VDD_SPI）、
+            GPIO18/19（USB Serial/JTAG）、GPIO20/21（UART0）、
+            GPIO2/8/9（strapping）。
+
+    config LUMEN_MAX_BRIGHTNESS
+        int "亮度上限（0-255，0 表示不限制）"
+        default 200
+        range 0 255
+        help
+            构建期亮度上限。State 的 max_brightness 字段暴露这个值，
+            小程序滑块最大值与之对齐。默认 200（spec §2）。
+
+    config LUMEN_RENDER_TASK_STACK_SIZE
+        int "渲染任务栈大小（字节）"
+        default 4096
+        range 4096 16384
+        help
+            渲染任务做段合成、gamma 查表、set_pixel 循环和阻塞 refresh。
+            骨架期大结构已静态化，4096 理论够；溢出时上调并记录。
+
+    config LUMEN_RENDER_TASK_PRIORITY
+        int "渲染任务优先级"
+        default 4
+        range 1 10
+        help
+            NimBLE 主机任务优先级 21 > 渲染任务 > 存储任务。
+            渲染任务取 4，存储任务取 2（spec §3.2）。
+
+    config LUMEN_STORE_TASK_STACK_SIZE
+        int "存储任务栈大小（字节）"
+        default 3072
+        range 3072 8192
+        help
+            存储任务做 NVS blob 编码与 commit。spec 定 3072。
+
+    config LUMEN_STORE_TASK_PRIORITY
+        int "存储任务优先级"
+        default 2
+        range 1 10
+        help
+            存储任务优先级低于渲染任务：NVS 写不是实时路径。
+
+    config LUMEN_LED_COUNT
+        int "首次上电默认灯珠数"
+        default 30
+        range 1 100
+        help
+            首次上电（无 NVS 历史）的默认灯珠数。协议 max_leds = 100 是硬上限。
+
+    config LUMEN_RMT_MEM_BLOCK_SYMBOLS
+        int "RMT mem_block_symbols"
+        default 48
+        range 48 192
+        help
+            RMT 通道一次能容纳的 symbol 数量。C3 上限 192，48 的整数倍。
+
+endmenu
