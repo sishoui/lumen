@@ -1,0 +1,4 @@
+.pio/
+miniprogram/node_modules/
+*.log
+*.err

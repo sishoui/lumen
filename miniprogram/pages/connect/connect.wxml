@@ -1,0 +1,44 @@
+<!--pages/connect/connect.wxml-->
+<view class="page">
+  <view class="header">
+    <text class="title">连接设备</text>
+    <text class="sub">{{scanning ? '正在扫描 BT- 设备...' : '点击重新扫描'}}</text>
+  </view>
+
+  <view class="card" wx:if="{{connected}}">
+    <view class="row">
+      <text class="name">{{deviceName}}</text>
+      <text class="badge">已连接</text>
+    </view>
+    <view class="row">
+      <button class="btn secondary" bindtap="disconnect">断开</button>
+      <button class="btn primary" bindtap="goControl">去控制</button>
+    </view>
+  </view>
+
+  <view class="scan-btn" bindtap="toggleScan">
+    <text>{{scanning ? '停止扫描' : '开始扫描'}}</text>
+  </view>
+
+  <view class="list">
+    <block wx:for="{{devices}}" wx:key="deviceId">
+      <view class="item" bindtap="connect" data-device="{{item}}">
+        <view class="info">
+          <text class="name">{{item.name}}</text>
+          <text class="rssi">信号 {{item.RSSI}} dBm</text>
+        </view>
+        <text class="arrow">›</text>
+      </view>
+    </block>
+    <view class="empty" wx:if="{{!devices.length && !scanning}}">
+      <text>未发现设备，请确保 ESP32 已上电并广播 BT- 前缀</text>
+    </view>
+  </view>
+
+  <view class="log">
+    <text class="log-title">日志</text>
+    <scroll-view scroll-y class="log-body">
+      <text wx:for="{{logs}}" wx:key="index" class="log-line">{{item}}</text>
+    </scroll-view>
+  </view>
+</view>

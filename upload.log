@@ -1,0 +1,88 @@
+Processing esp32-c3-devkitm-1 (platform: espressif32@6.7.0; board: esp32-c3-devkitm-1; framework: arduino)
+--------------------------------------------------------------------------------
+Verbose mode can be enabled via `-v, --verbose` option
+CONFIGURATION: https://docs.platformio.org/page/boards/espressif32/esp32-c3-devkitm-1.html
+PLATFORM: Espressif 32 (6.7.0) > Espressif ESP32-C3-DevKitM-1
+HARDWARE: ESP32C3 160MHz, 320KB RAM, 4MB Flash
+DEBUG: Current (cmsis-dap) External (cmsis-dap, esp-bridge, esp-builtin, esp-prog, iot-bus-jtag, jlink, minimodule, olimex-arm-usb-ocd, olimex-arm-usb-ocd-h, olimex-arm-usb-tiny-h, olimex-jtag-tiny, tumpa)
+PACKAGES: 
+ - framework-arduinoespressif32 @ 3.20016.0 (2.0.16) 
+ - tool-esptoolpy @ 1.40501.0 (4.5.1) 
+ - tool-mkfatfs @ 2.0.1 
+ - tool-mklittlefs @ 1.203.210628 (2.3) 
+ - tool-mkspiffs @ 2.230.0 (2.30) 
+ - toolchain-riscv32-esp @ 8.4.0+2021r2-patch5
+LDF: Library Dependency Finder -> https://bit.ly/configure-pio-ldf
+LDF Modes: Finder ~ chain, Compatibility ~ soft
+Found 35 compatible libraries
+Scanning dependencies...
+Dependency Graph
+|-- FastLED @ 3.6.0
+|-- NimBLE-Arduino @ 1.4.2
+Building in release mode
+Retrieving maximum program size .pio\build\esp32-c3-devkitm-1\firmware.elf
+Checking size .pio\build\esp32-c3-devkitm-1\firmware.elf
+Advanced Memory Usage is available via "PlatformIO Home > Project Inspect"
+RAM:   [=         ]   8.0% (used 26316 bytes from 327680 bytes)
+Flash: [====      ]  41.3% (used 541916 bytes from 1310720 bytes)
+Configuring upload protocol...
+AVAILABLE: cmsis-dap, esp-bridge, esp-builtin, esp-prog, espota, esptool, iot-bus-jtag, jlink, minimodule, olimex-arm-usb-ocd, olimex-arm-usb-ocd-h, olimex-arm-usb-tiny-h, olimex-jtag-tiny, tumpa
+CURRENT: upload_protocol = esptool
+Looking for upload port...
+Using manually specified: COM6
+Uploading .pio\build\esp32-c3-devkitm-1\firmware.bin
+esptool.py v4.5.1
+Serial port COM6
+Connecting...
+Chip is ESP32-C3 (revision v0.4)
+Features: WiFi, BLE
+Crystal is 40MHz
+MAC: cc:8d:a2:c2:56:60
+Uploading stub...
+Running stub...
+Stub running...
+Configuring flash size...
+Flash will be erased from 0x00000000 to 0x00003fff...
+Flash will be erased from 0x00008000 to 0x00008fff...
+Flash will be erased from 0x0000e000 to 0x0000ffff...
+Flash will be erased from 0x00010000 to 0x0009afff...
+Compressed 12464 bytes to 9065...
+Writing at 0x00000000... (100 %)
+Wrote 12464 bytes (9065 compressed) at 0x00000000 in 0.2 seconds (effective 431.4 kbit/s)...
+Hash of data verified.
+Compressed 3072 bytes to 146...
+Writing at 0x00008000... (100 %)
+Wrote 3072 bytes (146 compressed) at 0x00008000 in 0.0 seconds (effective 511.6 kbit/s)...
+Hash of data verified.
+Compressed 8192 bytes to 47...
+Writing at 0x0000e000... (100 %)
+Wrote 8192 bytes (47 compressed) at 0x0000e000 in 0.1 seconds (effective 719.7 kbit/s)...
+Hash of data verified.
+Compressed 568752 bytes to 327949...
+Writing at 0x00010000... (4 %)
+Writing at 0x0001b2fc... (9 %)
+Writing at 0x00025afc... (14 %)
+Writing at 0x0002d5ea... (19 %)
+Writing at 0x00033b81... (23 %)
+Writing at 0x00039f68... (28 %)
+Writing at 0x00040390... (33 %)
+Writing at 0x0004686a... (38 %)
+Writing at 0x0004d23a... (42 %)
+Writing at 0x00053d2c... (47 %)
+Writing at 0x00059ea8... (52 %)
+Writing at 0x00060489... (57 %)
+Writing at 0x00067121... (61 %)
+Writing at 0x0006dc53... (66 %)
+Writing at 0x00073db7... (71 %)
+Writing at 0x00079b66... (76 %)
+Writing at 0x0007f94c... (80 %)
+Writing at 0x00087936... (85 %)
+Writing at 0x0008e628... (90 %)
+Writing at 0x0009449d... (95 %)
+Writing at 0x0009aae1... (100 %)
+Wrote 568752 bytes (327949 compressed) at 0x00010000 in 4.3 seconds (effective 1052.3 kbit/s)...
+Hash of data verified.
+
+Leaving...
+Hard resetting via RTS pin...
+========================= [SUCCESS] Took 12.91 seconds =========================

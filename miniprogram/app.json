@@ -1,0 +1,14 @@
+{
+  "pages": [
+    "pages/connect/connect",
+    "pages/control/control"
+  ],
+  "window": {
+    "navigationBarBackgroundColor": "#121212",
+    "navigationBarTitleText": "BT-Light",
+    "navigationBarTextStyle": "white",
+    "backgroundColor": "#121212"
+  },
+  "style": "v2",
+  "sitemapLocation": "sitemap.json"
+}

@@ -1,0 +1,22 @@
+.connect-row { display:flex; justify-content:space-between; align-items:center; }
+.page { padding: 24rpx; }
+.header .title { font-size: 40rpx; font-weight: 700; color: #fff; display:block; }
+.header .sub { font-size: 24rpx; color: #888; display:block; margin-top: 8rpx; }
+.card { background: #1e1e1e; border-radius: 16rpx; padding: 24rpx; margin: 24rpx 0; }
+.row { display:flex; align-items:center; justify-content:space-between; margin-top: 16rpx; }
+.name { color: #fff; font-size: 30rpx; }
+.badge { color: #4cd964; font-size: 24rpx; }
+.btn { font-size: 28rpx; }
+.btn.primary { background: #007aff; color: #fff; }
+.btn.secondary { background: #333; color: #fff; }
+.scan-btn { background: #007aff; color: #fff; text-align:center; padding: 20rpx; border-radius: 12rpx; margin: 16rpx 0; }
+.list { margin-top: 16rpx; }
+.item { display:flex; justify-content:space-between; align-items:center; background:#1e1e1e; padding:20rpx; border-radius:12rpx; margin-bottom:12rpx; }
+.info .name { display:block; }
+.info .rssi { font-size:22rpx; color:#888; }
+.arrow { color:#555; font-size:36rpx; }
+.empty { color:#666; font-size:24rpx; text-align:center; padding:40rpx; }
+.log { margin-top: 24rpx; }
+.log-title { color:#888; font-size:22rpx; display:block; margin-bottom:8rpx; }
+.log-body { height: 200rpx; background:#0a0a0a; border-radius:8rpx; padding:8rpx; }
+.log-line { font-size:20rpx; color:#aaa; display:block; line-height:1.4; }
