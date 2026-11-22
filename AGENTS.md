@@ -41,6 +41,20 @@
 
 禁止只给一个 "13 passed" 数字就结束。
 
+## Agent skills
+
+### Issue tracker
+
+Issue 与 spec 作为 GitHub Issues 管理（仓库 `sishoui/bt-light`），统一用 `gh` CLI 操作。详见 `docs/agents/issue-tracker.md`。
+
+### Triage labels
+
+沿用五个默认 triage 标签（needs-triage / needs-info / ready-for-agent / ready-for-human / wontfix）。详见 `docs/agents/triage-labels.md`。
+
+### Domain docs
+
+单上下文布局：根目录 `GLOSSARY.md` + `docs/adr/`。详见 `docs/agents/domain.md`。
+
 ## Git 历史（防失控）
 
 - 每次 AI 修改被确认后，应 commit 一次，保持历史可追溯；commit message 用中文简述改动。
