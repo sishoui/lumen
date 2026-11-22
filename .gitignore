@@ -19,3 +19,5 @@ reports/
 # 系统文件
 .DS_Store
 Thumbs.db
+# ESP-IDF
+managed_components/

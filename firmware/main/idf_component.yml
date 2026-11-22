@@ -1,0 +1,8 @@
+## 依赖清单（组件管理器读取）
+##
+## ESP-IDF 基线：v6.1（2026-10-31 定，最新稳定版）。
+## 本项目不做旧版本兼容：MVP 只是试验，不为历史版本维护降级路径。
+## 换机器 / 重建环境时按 docs/dev-environment.md 装到同一版本。
+dependencies:
+  espressif/led_strip: "^3.1.1"
+  idf: ">=6.1"
