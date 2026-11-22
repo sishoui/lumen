@@ -45,7 +45,7 @@
 
 ### Issue tracker
 
-Issue 与 spec 作为 GitHub Issues 管理（仓库 `sishoui/bt-light`），统一用 `gh` CLI 操作。详见 `docs/agents/issue-tracker.md`。
+Issue 与 spec 作为 GitHub Issues 管理（仓库 `sishoui/lumen`），统一用 `gh` CLI 操作。详见 `docs/agents/issue-tracker.md`。
 
 ### Triage labels
 

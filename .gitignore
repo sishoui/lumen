@@ -1,4 +1,21 @@
+# 构建产物
 .pio/
-miniprogram/node_modules/
+build/
+dist/
+out/
+
+# 依赖
+node_modules/
+__pycache__/
+*.pyc
+
+# 日志与错误输出
 *.log
 *.err
+
+# 测试报告
+reports/
+
+# 系统文件
+.DS_Store
+Thumbs.db
