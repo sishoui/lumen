@@ -3,13 +3,14 @@
  * 供场景编辑器、测试共同使用，避免业务逻辑散落页面。
  */
 
+import { isValidLayer } from "./protocol/layer-rules";
+
 import type { EffectLayer, SceneStep, SceneStepReport, SceneReport, ScenePartReport } from "./protocol/types";
 import { EMPTY_EFFECT } from "./protocol/types";
 import { EMPTY_LAYER } from "./protocol/commands";
-import {
-  EFFECT_TYPE, NO_EFFECT, KNOWN_EFFECT_TYPES, LAYER_LEVEL_MAX,
+import { EFFECT_TYPE, NO_EFFECT, KNOWN_EFFECT_TYPES, LAYER_LEVEL_MAX, EFFECT_PERIOD_BOUNDS,
   STEP_MIN_MS, STEP_MAX_MS, MAX_STEPS, MAX_SCENES,
-  LOOP, LOOP_MAX, isValidEffectPeriod,
+  LOOP, LOOP_MAX, isValidEffectPeriod, isKnownEffectType,
 } from "./protocol/constants";
 
 /** 灯效类型中文名。 */
@@ -143,6 +144,158 @@ export function switchEffectType(previous: EffectLayer, nextType: number, isOver
     flags: 0,
     level,
   });
+}
+
+/** 一层发送前的字段级错误。 */
+export interface LayerFieldError {
+  /** 出错字段：type / hue / sat / period / p5 / flags / level。 */
+  field: "type" | "hue" | "sat" | "period" | "p5" | "flags" | "level";
+  /** 用户能直接看懂的说明，含实际值与允许区间。 */
+  message: string;
+}
+
+/** 校验结果：无任何错误时 errors 为空数组。 */
+export interface LayerValidation {
+  ok: boolean;
+  errors: LayerFieldError[];
+  /** 第一条错误文案；无错误时为空串，页面可直接显示。 */
+  firstError: string;
+}
+
+/**
+ * 每个类型允许置位的 flags 位（其余位必须为 0），与固件 effects.c 逐条对齐。
+ * 位含义：bit0 reverse / 双脉冲；bit1–2 波形；bit1 拖尾；bit2–3 头数量。
+ */
+const FLAGS_ALLOWED_MASK: Record<number, number> = {
+  [EFFECT_TYPE.STATIC]: 0x00,
+  [EFFECT_TYPE.BREATHING]: 0x07,
+  [EFFECT_TYPE.RAINBOW]: 0x01,
+  [EFFECT_TYPE.COMET]: 0x0f,
+  [EFFECT_TYPE.STROBE]: 0x00,
+  [EFFECT_TYPE.HEARTBEAT]: 0x01,
+  [EFFECT_TYPE.OFF]: 0x00,
+  [EFFECT_TYPE.FLICKER]: 0x00,
+};
+
+/** 各类型在 UI 里的中文名，用于错误文案。 */
+const TYPE_LABEL: Record<number, string> = {
+  [EFFECT_TYPE.STATIC]: "静态",
+  [EFFECT_TYPE.BREATHING]: "呼吸",
+  [EFFECT_TYPE.RAINBOW]: "彩虹",
+  [EFFECT_TYPE.COMET]: "流光",
+  [EFFECT_TYPE.STROBE]: "爆闪",
+  [EFFECT_TYPE.HEARTBEAT]: "心跳",
+  [EFFECT_TYPE.OFF]: "熄灭",
+  [EFFECT_TYPE.FLICKER]: "随机闪烁",
+};
+
+/**
+ * 校验一层能否发送（固件 lumen_segment_validate_shape 的前置镜像）。
+ *
+ * 与 layer-rules.ts 的区别：这里读的是内存里的 EffectLayer，错误定位到字段，
+ * 文案给用户看；layer-rules 读 9 字节，只回布尔，给 Mock 设备用。两者规则同源。
+ *
+ * @param isOverlay layer1 允许空层；layer0 不允许。
+ */
+export function validateLayerForSend(layer: EffectLayer, options: { isOverlay: boolean }): LayerValidation {
+  const errors: LayerFieldError[] = [];
+  const add = (field: LayerFieldError["field"], message: string): void => {
+    errors.push({ field, message });
+  };
+  const isOverlay = options.isOverlay;
+  const type = layer.type;
+
+  if (type === NO_EFFECT) {
+    if (!isOverlay) {
+      add("type", "底层不能是空层");
+    } else {
+      const dirty: string[] = [];
+      if (layer.hue !== 0) dirty.push(`hue=${layer.hue}`);
+      if (layer.sat !== 0) dirty.push(`sat=${layer.sat}`);
+      if (layer.periodMs !== 0) dirty.push(`period=${layer.periodMs}ms`);
+      if (layer.p5 !== 0) dirty.push(`p5=${layer.p5}`);
+      if (layer.flags !== 0) dirty.push(`flags=0x${layer.flags.toString(16)}`);
+      if (layer.level !== 0) dirty.push(`level=${layer.level}`);
+      if (dirty.length > 0) {
+        add("type", `空层的参数必须全为 0，当前 ${dirty.join("、")}`);
+      }
+    }
+    return finish();
+  }
+
+  if (!isKnownEffectType(type)) {
+    add("type", `未知灯效类型 0x${type.toString(16)}`);
+    return finish();
+  }
+
+  if (!Number.isInteger(layer.level) || layer.level < 0 || layer.level > LAYER_LEVEL_MAX) {
+    add("level", `亮度 ${layer.level} 超出 0..${LAYER_LEVEL_MAX}`);
+  }
+  if (!Number.isInteger(layer.hue) || layer.hue < 0 || layer.hue > 0xffff) {
+    add("hue", `色相 ${layer.hue} 超出 0..65535`);
+  }
+  if (!Number.isInteger(layer.sat) || layer.sat < 0 || layer.sat > 0xff) {
+    add("sat", `饱和度 ${layer.sat} 超出 0..255`);
+  }
+
+  if (type === EFFECT_TYPE.OFF) {
+    const dirty: string[] = [];
+    if (layer.hue !== 0) dirty.push(`hue=${layer.hue}`);
+    if (layer.sat !== 0) dirty.push(`sat=${layer.sat}`);
+    if (layer.periodMs !== 0) dirty.push(`period=${layer.periodMs}ms`);
+    if (layer.p5 !== 0) dirty.push(`p5=${layer.p5}`);
+    if (layer.flags !== 0) dirty.push(`flags=0x${layer.flags.toString(16)}`);
+    if (dirty.length > 0) {
+      add("type", `熄灭时除亮度外必须全为 0，当前 ${dirty.join("、")}`);
+    }
+    return finish();
+  }
+
+  const bounds = EFFECT_PERIOD_BOUNDS[type];
+  const name = TYPE_LABEL[type] ?? `类型 0x${type.toString(16)}`;
+
+  if (!Number.isInteger(layer.periodMs) || layer.periodMs < 0 || layer.periodMs > 0xffff) {
+    add("period", `${name}周期 ${layer.periodMs}ms 超出 0..65535`);
+  } else if (type === EFFECT_TYPE.STATIC) {
+    if (layer.periodMs !== 0) add("period", "静态灯效没有周期，必须为 0");
+  } else if (bounds && layer.periodMs !== 0) {
+    if (layer.periodMs < bounds.min || layer.periodMs > bounds.max) {
+      const range = bounds.max === 0xffff
+        ? `${bounds.min}ms 以上`
+        : `${bounds.min}–${bounds.max}ms`;
+      add("period", `${name}周期 ${layer.periodMs}ms 超出 ${range}`);
+    }
+  }
+
+  if (type === EFFECT_TYPE.STATIC) {
+    if (layer.p5 !== 0) add("p5", "静态灯效没有 p5，必须为 0");
+    if (layer.flags !== 0) add("flags", `静态灯效没有 flags，必须为 0（当前 0x${layer.flags.toString(16)}）`);
+  } else {
+    if (!Number.isInteger(layer.p5) || layer.p5 < 0 || layer.p5 > 0xff) {
+      add("p5", `p5 ${layer.p5} 超出 0..255`);
+    } else if (type === EFFECT_TYPE.BREATHING && layer.p5 > 100) {
+      add("p5", `呼吸 p5 ${layer.p5} 超出 0..100`);
+    }
+    if (!Number.isInteger(layer.flags) || layer.flags < 0 || layer.flags > 0xff) {
+      add("flags", `flags ${layer.flags} 超出 0..255`);
+    } else {
+      const allowed = FLAGS_ALLOWED_MASK[type] ?? 0;
+      const reserved = layer.flags & ~allowed & 0xff;
+      if (reserved !== 0) {
+        add("flags", `${name} flags 0x${layer.flags.toString(16)} 含保留位 0x${reserved.toString(16)}`);
+      }
+    }
+  }
+
+  return finish();
+
+  function finish(): LayerValidation {
+    return {
+      ok: errors.length === 0,
+      errors,
+      firstError: errors.length > 0 ? errors[0].message : "",
+    };
+  }
 }
 
 /** 循环模式中文名。 */

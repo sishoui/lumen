@@ -134,6 +134,13 @@
       </view>
       <view class="hint">底层必填；叠加层为空时覆盖底层，非空时按亮度叠加</view>
 
+      <!-- 发送前校验失败的字段级错误 -->
+      <view wx:if="{{layerErrors.length > 0}}" class="layer-errors">
+        <view class="hint error" wx:for="{{layerErrors}}" wx:key="index">
+          {{item.field}}：{{item.message}}
+        </view>
+      </view>
+
       <!-- 保存 -->
       <view class="row">
         <view class="button" bindtap="onSaveStep">保存此步骤</view>

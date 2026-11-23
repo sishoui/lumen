@@ -237,6 +237,16 @@
       "layer": "ui",
       "covers": "L4 演示模式切换（#33）：演示连接后控制页开关可用 → 切真实模式（不扫真机）设备列表清空且未连接 → 切回演示模式列表清空并重新扫描到同一台设备 → 重新连接后设备为默认状态且开关仍生效；缺自动化端口时 SKIP",
       "ticket": "#33"
+    },
+    "miniprogram/tests/scene-validate.test.ts": {
+      "layer": "mp",
+      "covers": "灯效参数发送前校验（#28）：字段级校验 level/hue/sat/period/p5/flags/type（level 101 非法、静态 period 2000 非法、心跳 499/500/1500/1501 边界、呼吸 333/334 与 p5 101、空层带参数、底层空层、未知 type、熄灭带 hue、静态/心跳 flags 保留位）；注入记录型 transport 断言非法层不发 SceneStep 且合法层载荷字段正确；呼吸→静态读回 period=0、呼吸→熄灭读回除 level 外全 0、叠加层空层读回 0xFF 全 0、静态保留字节为 0",
+      "ticket": "#28"
+    },
+    "scripts/user-flows/issue-28.mjs": {
+      "layer": "ui",
+      "covers": "工单 #28 用户流程：演示模式重置后造一步 → layer0 level 101 保存被拦截且提示含亮度/100、步骤未被改写 → 心跳周期 200 提示含 500–1500 → 呼吸→静态保存读回 period=0 → 熄灭保存读回 hue/sat/period 全 0 → 叠加层空层保存读回 0xFF 全 0；缺自动化端口时 SKIP",
+      "ticket": "#28"
     }
   }
 }

@@ -4,7 +4,7 @@ import { getSession } from "../../utils/session/singleton";
 import {
   formatDuration, formatLayer, effectLabel,
   layerPickerOptions, pickerIndexToType, pickerIndexForType, layerFieldVisibility,
-  normalizeLayer, switchEffectType,
+  normalizeLayer, switchEffectType, validateLayerForSend,
   validateDuration,
   getStepsForPart, getPartHead, totalDuration,
   createEmptyStep, createStaticLayer,
@@ -96,6 +96,8 @@ Page({
     layer1PickerIndex: pickerIndexForType(LAYER1_OPTIONS, NO_EFFECT),
     layer0Label: effectLabel(EFFECT_TYPE.STATIC),
     layer1Label: effectLabel(NO_EFFECT),
+    /** 发送前校验的字段级错误；非空时阻止发送并在页面内联展示 */
+    layerErrors: [] as Array<{ field: string; message: string }>,
     loopOptions: LOOP_OPTIONS,
     /** 消息 */
     hint: "",
@@ -323,11 +325,17 @@ Page({
     const err = validateDuration(this.data.durationMs);
     if (err) { this.setData({ hint: err }); return; }
     const layer0 = normalizeLayer(this.editorLayer(0));
-    if (layer0.type === NO_EFFECT) {
-      this.setData({ hint: "底层不能是空层" });
+    const layer1 = normalizeLayer(this.editorLayer(1));
+    const bad0 = validateLayerForSend(layer0, { isOverlay: false });
+    const bad1 = validateLayerForSend(layer1, { isOverlay: true });
+    if (!bad0.ok || !bad1.ok) {
+      this.setData({
+        layerErrors: [...bad0.errors, ...bad1.errors],
+        hint: `参数不合法，未发送：${bad0.firstError || bad1.firstError}`,
+      });
       return;
     }
-    const layer1 = normalizeLayer(this.editorLayer(1));
+    this.setData({ layerErrors: [] });
     const step: SceneStep = {
       sceneId: this.data.sceneId,
       stripId,
@@ -385,20 +393,22 @@ Page({
   /** 层0 类型切换：change 只做下标 → 协议 type，再按新类型归一化。 */
   onLayer0TypeChange(e: any) {
     const type = pickerIndexToType(LAYER0_OPTIONS, Number(e.detail.value));
+    this.setData({ layerErrors: [] });
     this.applyLayerEdit(0, switchEffectType(this.editorLayer(0), type, false));
   },
-  onLayer0HueInput(e: any) { this.setData({ layer0Hue: parseInt(e.detail.value, 10) || 0 }); },
-  onLayer0SatInput(e: any) { this.setData({ layer0Sat: parseInt(e.detail.value, 10) || 0 }); },
-  onLayer0PeriodInput(e: any) { this.setData({ layer0Period: parseInt(e.detail.value, 10) || 0 }); },
-  onLayer0LevelInput(e: any) { this.setData({ layer0Level: parseInt(e.detail.value, 10) || 0 }); },
+  onLayer0HueInput(e: any) { this.setData({ layer0Hue: parseInt(e.detail.value, 10) || 0, layerErrors: [] }); },
+  onLayer0SatInput(e: any) { this.setData({ layer0Sat: parseInt(e.detail.value, 10) || 0, layerErrors: [] }); },
+  onLayer0PeriodInput(e: any) { this.setData({ layer0Period: parseInt(e.detail.value, 10) || 0, layerErrors: [] }); },
+  onLayer0LevelInput(e: any) { this.setData({ layer0Level: parseInt(e.detail.value, 10) || 0, layerErrors: [] }); },
 
   /** 层1 类型切换：从空层切到真实效果时补默认亮度 50。 */
   onLayer1TypeChange(e: any) {
     const type = pickerIndexToType(LAYER1_OPTIONS, Number(e.detail.value));
+    this.setData({ layerErrors: [] });
     this.applyLayerEdit(1, switchEffectType(this.editorLayer(1), type, true));
   },
-  onLayer1HueInput(e: any) { this.setData({ layer1Hue: parseInt(e.detail.value, 10) || 0 }); },
-  onLayer1SatInput(e: any) { this.setData({ layer1Sat: parseInt(e.detail.value, 10) || 0 }); },
-  onLayer1PeriodInput(e: any) { this.setData({ layer1Period: parseInt(e.detail.value, 10) || 0 }); },
-  onLayer1LevelInput(e: any) { this.setData({ layer1Level: parseInt(e.detail.value, 10) || 0 }); },
+  onLayer1HueInput(e: any) { this.setData({ layer1Hue: parseInt(e.detail.value, 10) || 0, layerErrors: [] }); },
+  onLayer1SatInput(e: any) { this.setData({ layer1Sat: parseInt(e.detail.value, 10) || 0, layerErrors: [] }); },
+  onLayer1PeriodInput(e: any) { this.setData({ layer1Period: parseInt(e.detail.value, 10) || 0, layerErrors: [] }); },
+  onLayer1LevelInput(e: any) { this.setData({ layer1Level: parseInt(e.detail.value, 10) || 0, layerErrors: [] }); },
 });
