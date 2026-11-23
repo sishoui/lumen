@@ -15,7 +15,8 @@
 
 import { connect, createDriver, createRecorder, sleep } from "./harness.mjs";
 
-const rec = createRecorder();
+const recorder = createRecorder();
+const rec = recorder.rec;
 
 const conn = await connect();
 if (conn.skipped) {
@@ -32,16 +33,30 @@ const waitLoadingDone = () =>
 const waitCommitDone = () =>
   d.waitFor(async () => (await d.dataGet("hint")) === "布局已提交", { timeoutMs: 20000 });
 
-/** 把 wx.showModal 换成自动取消：只有根本没弹确认时删除才会发生。 */
-const mockModalCancel = () =>
-  mp.mockWxMethod("showModal", function (options) {
-    if (options && typeof options.success === "function") options.success({ confirm: false, cancel: true });
-  });
+/**
+ * 在页面上下文替换 wx.showModal。
+ * automator 的 mockWxMethod 函数形式只接收 mock 时传入的 args，看不到调用方
+ * 传的 options，success 回调永远不会触发；这里直接换掉 wx.showModal 才能拿到
+ * 真实调用参数，模拟用户点「取消/确定」。
+ */
+const setModalAnswer = (confirm) =>
+  mp.evaluate(
+    (answer) => {
+      wx.__origShowModal = wx.__origShowModal || wx.showModal;
+      wx.showModal = (options) => {
+        if (options && typeof options.success === "function") {
+          options.success({ confirm: answer, cancel: !answer });
+        }
+      };
+    },
+    confirm,
+  );
 
-/** 把 wx.showModal 换成自动确认。 */
-const mockModalConfirm = () =>
-  mp.mockWxMethod("showModal", function (options) {
-    if (options && typeof options.success === "function") options.success({ confirm: true, cancel: false });
+const mockModalCancel = () => setModalAnswer(false);
+const mockModalConfirm = () => setModalAnswer(true);
+const restoreModal = () =>
+  mp.evaluate(() => {
+    if (wx.__origShowModal) wx.showModal = wx.__origShowModal;
   });
 
 const backToControl = async () => {
@@ -227,8 +242,8 @@ rec(
   `partCount=${data?.partCount} name=${data?.parts?.[0]?.name} segs=${segsOf(data, 0)}`,
 );
 
-await mp.restoreWxMethod("showModal").catch(() => {});
+await restoreModal().catch(() => {});
 
-rec.printSummary();
+recorder.printSummary();
 await mp.disconnect().catch(() => {});
-process.exit(rec.fail === 0 ? 0 : 1);
+process.exit(recorder.fail === 0 ? 0 : 1);

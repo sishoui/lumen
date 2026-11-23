@@ -23,7 +23,8 @@ if (conn.skipped) {
 
 const { mp } = conn;
 const driver = createDriver(mp);
-const rec = createRecorder();
+const recorder = createRecorder();
+const rec = recorder.rec;
 const { call, dataGet, switchTab, waitForRoute, curRoute } = driver;
 
 const waitForPower = async (expected) =>
@@ -109,7 +110,7 @@ try {
 } catch (error) {
   rec(`EXCEPTION ${String(error?.message ?? error)}`, false);
 } finally {
-  rec.printSummary();
+  recorder.printSummary();
   await mp.disconnect().catch(() => {});
-  process.exit(rec.fail === 0 ? 0 : 1);
+  process.exit(recorder.fail === 0 ? 0 : 1);
 }

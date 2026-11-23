@@ -309,9 +309,10 @@ console.log("\n=== §D 场景编辑器（时间轴）===");
     await sleep(1500);
     const hint = await dataGet("hint");
     rec("D6 保存步骤有反馈", hint !== "" && hint !== undefined, `hint=${hint}`);
-    // 验证步骤时长真的写进去了
-    const savedDur = await dataGet("steps.0.durationMs");
-    rec("D6b 步骤时长落库", savedDur === 2000, `steps[0].durationMs=${savedDur}`);
+    // 验证步骤时长真的写进去了（#22 起新增步会保留旧步，读当前选中步而不是固定 0）
+    const activeStep = await dataGet("activeStepIndex");
+    const savedDur = await dataGet(`steps.${activeStep}.durationMs`);
+    rec("D6b 步骤时长落库", savedDur === 2000, `steps[${activeStep}].durationMs=${savedDur}`);
 
     // 保存场景名
     await call("onSceneNameInput", { detail: { value: "我的场景" } });
