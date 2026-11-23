@@ -4,6 +4,9 @@ import { getSession, rebuildSessionForCurrentMockMode } from "../../utils/sessio
 import { LinkSubscription } from "../../utils/session/link-subscription";
 import { mockModeEnabled, setMockMode, createWxStorage } from "../../utils/mock/mock-mode";
 import type { DiscoveredDevice } from "../../utils/protocol/types";
+import { scanFailureText, connectFailureText } from "../../utils/device-feedback";
+
+export { scanFailureText, connectFailureText } from "../../utils/device-feedback";
 
 const STATUS_TEXT: Record<string, string> = {
   idle: "未连接",
@@ -76,7 +79,8 @@ Page({
       })
       .catch((err) => {
         console.error("[device] 扫描失败", err);
-        this.setData({ scanning: false });
+        // statusText 给出可读原因；scanning 复位让 UI 回到「点击扫描」状态。
+        this.setData({ scanning: false, statusText: scanFailureText(err) });
       });
   },
 
@@ -94,7 +98,7 @@ Page({
       })
       .catch((err) => {
         console.error("[device] 连接失败", err);
-        this.setData({ statusText: "连接失败" });
+        this.setData({ statusText: connectFailureText(err) });
       });
   },
 

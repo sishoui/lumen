@@ -14,7 +14,8 @@ import {
   planAddStep, planDeleteLastStep, planLoopChange, validateLoop,
 } from "./scene-editor";
 import type { TimelinePlan } from "./scene-editor";
-import { LOOP, MAX_STEPS, resultName } from "./protocol/constants";
+import { LOOP, MAX_STEPS } from "./protocol/constants";
+import { describeCommandFailure } from "./feedback";
 
 /** 执行写计划所需的最小会话接口；ControlSession 结构上直接满足。 */
 export interface SceneTimelinePort {
@@ -47,15 +48,9 @@ export interface TimelineWriteOutcome {
   reRead: boolean;
 }
 
-/** 设备/编码失败 → 用户能判断「改参数还是重试」的文案。 */
+/** 设备/编码失败 → 用户能判断「改参数还是重试」的文案（统一走 feedback 映射）。 */
 export function editFailureText(result: EditResult): string {
-  if (result.kind === "ack-error") {
-    return `结果码 ${result.ack.resultCode}（${resultName(result.ack.resultCode)}）`;
-  }
-  if (result.kind === "error") return result.message;
-  if (result.kind === "storage") return `本地存储失败：${result.message}`;
-  if (result.kind === "stale") return "连接已切换，请重试";
-  return "未知原因";
+  return describeCommandFailure(result, "操作");
 }
 
 function sceneFailureText(result: SceneResult): string {

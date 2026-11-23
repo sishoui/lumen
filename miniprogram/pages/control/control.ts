@@ -5,7 +5,8 @@ import { TapSequence } from "../../utils/ble/log-panel";
 import { ledCountLimit, planLedCountSet } from "../../utils/led-count";
 import { sceneCountLimit, sceneOptions, sceneSelection, sceneOptionClass } from "../../utils/scene-select";
 import type { SceneOption } from "../../utils/scene-select";
-import { MAX_LEDS, resultName } from "../../utils/protocol/constants";
+import { MAX_LEDS } from "../../utils/protocol/constants";
+import { describeCommandFailure } from "../../utils/feedback";
 
 /** 控制页每链行的数据形态；ledDraft 是输入框文本，ledCount 是设备读回值。 */
 interface StripRow {
@@ -93,7 +94,16 @@ Page({
 
   onPowerChange(e: any) {
     const on = e.detail.value as boolean;
-    void getSession().setPower(on).then(() => this.refresh());
+    void getSession().setPower(on).then((result) => {
+      if (result.kind === "ok") {
+        this.setData({ hint: "" });
+        this.refresh();
+        return;
+      }
+      // 离散命令：失败必须可见（结果码中文 + 动作），并刷新 State 反映设备真实值。
+      this.refresh();
+      this.setData({ hint: describeCommandFailure(result, "开机") });
+    });
   },
 
   onBrightnessChanging(e: any) {
@@ -111,7 +121,16 @@ Page({
   onStripPowerChange(e: any) {
     const stripId = e.currentTarget.dataset.strip as number;
     const on = e.detail.value as boolean;
-    void getSession().setStripPower(stripId, on).then(() => this.refresh());
+    void getSession().setStripPower(stripId, on).then((result) => {
+      if (result.kind === "ok") {
+        this.setData({ hint: "" });
+        this.refresh();
+        return;
+      }
+      // 离散命令：标明链号，用户知道是哪条链没生效。
+      this.refresh();
+      this.setData({ hint: describeCommandFailure(result, `链 ${stripId} ${on ? "开" : "关"}电`) });
+    });
   },
 
   /* ---------------- 每链灯珠数（#25） ---------------- */
@@ -169,13 +188,7 @@ Page({
       }
       // 失败：恢复显示设备当前值，结果码给中文原因（Busy 已由会话层重试一次）
       this.refresh();
-      if (result.kind === "ack-error") {
-        this.setData({ hint: `链 ${stripId} 设置失败：${resultName(result.ack.resultCode)}` });
-      } else if (result.kind === "stale") {
-        this.setData({ hint: "连接已变化，请重试" });
-      } else {
-        this.setData({ hint: `链 ${stripId} 设置失败：${result.message}` });
-      }
+      this.setData({ hint: describeCommandFailure(result, `链 ${stripId} 设置灯珠数`) });
     } finally {
       this._ledPending = false;
     }
@@ -222,13 +235,7 @@ Page({
         return;
       }
       this.refresh();
-      if (r.kind === "ack-error") {
-        this.setData({ hint: `激活场景 ${sceneId + 1} 失败：${resultName(r.ack.resultCode)}` });
-      } else if (r.kind === "stale") {
-        this.setData({ hint: "连接已变化，请重试" });
-      } else {
-        this.setData({ hint: `激活场景 ${sceneId + 1} 失败：${r.message}` });
-      }
+      this.setData({ hint: describeCommandFailure(r, `激活场景 ${sceneId + 1}`) });
     });
   },
 
@@ -238,7 +245,16 @@ Page({
   },
 
   onSelfTestTap() {
-    void getSession().selfTest();
+    // 离散命令：立即告诉用户命令已发出（红→绿→蓝→白），失败再给原因。
+    this.setData({ hint: "自检已开始（红→绿→蓝→白）" });
+    void getSession().selfTest().then((result) => {
+      if (result.kind === "ok") {
+        this.setData({ hint: "自检已开始（红→绿→蓝→白）" });
+        return;
+      }
+      this.refresh();
+      this.setData({ hint: describeCommandFailure(result, "自检") });
+    });
   },
 
   /** 占位：给 catchtap 用，阻止链行内的输入/开关点击冒泡触发导航。 */

@@ -4,8 +4,9 @@
  */
 
 import type { DeviceInfo, LayoutPart, LayoutReadback } from "./protocol/types";
-import { MAX_PARTS, MAX_PART_SEGS, RESULT } from "./protocol/constants";
+import { MAX_PARTS, MAX_PART_SEGS } from "./protocol/constants";
 import { validateNameBytes } from "./name-bytes";
+import { describeCommandFailure } from "./feedback";
 import type { EditResult } from "./session/session";
 
 /** 判断某颗灯珠是否已被任何部位占用。 */
@@ -235,42 +236,18 @@ export function planLayoutCommit(parts: LayoutPart[]): LayoutPart[] {
   return plan;
 }
 
-const RESULT_LABELS: Record<number, string> = {
-  [RESULT.OK]: "成功",
-  [RESULT.INVALID_PARAM]: "参数无效",
-  [RESULT.UNKNOWN_COMMAND]: "未知命令",
-  [RESULT.BAD_CHECKSUM]: "校验和错误",
-  [RESULT.BAD_LENGTH]: "长度不符",
-  [RESULT.BUSY]: "设备忙",
-  [RESULT.STORAGE_FAILED]: "存储失败",
-  [RESULT.UNSUPPORTED_VERSION]: "版本不支持",
-  [RESULT.BAD_MAGIC]: "magic 不匹配",
-  [RESULT.INTERNAL_ERROR]: "设备内部错误",
-};
-
-/** 结果码 → 中文原因（含十六进制，便于对照协议文档）。 */
-function formatResultCode(code: number): string {
-  const hex = `0x${code.toString(16).padStart(2, "0").toUpperCase()}`;
-  return `${RESULT_LABELS[code] ?? "未知结果码"}（${hex}）`;
-}
-
 /**
  * 提交结果 → 页面提示。
  *
  * 提交成功但读回失败必须与「布局已提交」区分：设备已接受，页面显示的却是旧值，
- * 用户需要重连才能看到真实状态。
+ * 用户需要重连才能看到真实状态。失败原因统一走 feedback.describeCommandFailure
+ * （结果码中文来自 protocol.constants.resultName，不再本地维护第二份表）。
  */
 export function layoutCommitFeedback(result: EditResult, readbackOk: boolean): string {
-  switch (result.kind) {
-    case "ok":
-      return readbackOk ? "布局已提交" : "已提交但读回失败，请重连查看设备实际状态";
-    case "ack-error":
-      return `提交失败：${formatResultCode(result.ack.resultCode)}`;
-    case "stale":
-      return "连接已变化，请重试";
-    default:
-      return `提交失败：${result.message}`;
+  if (result.kind === "ok") {
+    return readbackOk ? "布局已提交" : "已提交但读回失败，请重连查看设备实际状态";
   }
+  return describeCommandFailure(result, "提交");
 }
 
 /**

@@ -292,6 +292,16 @@
       "layer": "ui",
       "covers": "L4 用户流程（#30）：演示模式连接 → 控制页 3 个场景卡且场景 1 高亮 → 选场景 2（不触发激活）→ 编辑打开 sceneId=2 → 保存场景名「场景二」+ 一步 → 返回激活场景 2（State.activeScene=2、高亮移动）→ 重进编辑器读回场景二 → 顶部切回场景 1 读回其名字/时间轴且 activeStepIndex 归 0；缺自动化端口时 SKIP",
       "ticket": "#30"
+    },
+    "miniprogram/tests/feedback.test.ts": {
+      "layer": "mp",
+      "covers": "失败反馈（#31）：resultName 0–9 + 未知码中文文案、describeCommandFailure 四分支（ack-error/stale/error/storage）、FailureNotifier 窗口内只提示一次（reset 后再次放行）、设备页 scanFailureText/connectFailureText 蓝牙未开启/权限/其他错误、部位/场景 ack-error 走同一映射",
+      "ticket": "#31"
+    },
+    "scripts/user-flows/issue-31.mjs": {
+      "layer": "ui",
+      "covers": "L4 用户流程（#31）：演示连接 → 控制页自检 hint 含「自检已开始」→ 切真实模式 mock wx.openBluetoothAdapter 失败 → onScanTap → statusText 含「扫描失败」与可读原因 → 恢复 mock；连接失败仅 L2 覆盖；缺自动化端口时 SKIP",
+      "ticket": "#31"
     }
   }
 }
