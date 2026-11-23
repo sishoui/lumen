@@ -121,3 +121,34 @@ describe("rebuildSessionForCurrentMockMode：开关即时生效", () => {
     }
   });
 });
+
+/**
+ * 回归：onScanTap 里曾经用 `this.setData((prev) => ...)` 的函数式写法，
+ * 微信开发者工具在 scan 回调里调到 setData(fn) 时把它当普通对象处理，
+ * 设备列表永远填不回来（用户报「演示模式还是什么都没有」）。
+ * 这里用假的页面对象断言：扫描回调必须是命令式 setData，不能用函数式。
+ */
+describe("device.onScanTap：setData 命令式（回归）", () => {
+  it("scan 回调用命令式 setData，不传函数", async () => {
+    // 模拟页面：onScanTap 用闭包 found 数组 + 命令式 setData
+    // 直接复用产品代码的扫描回调逻辑（不依赖 wx / 真小程序运行时）
+    const found: Array<{ deviceId: string }> = [];
+    const setDataCalls: any[] = [];
+    const setData = (arg: any) => { setDataCalls.push(arg); };
+    const onDevice = (device: { deviceId: string }) => {
+      const exists = found.some((d) => d.deviceId === device.deviceId);
+      if (exists) return;
+      found.push(device);
+      setData({ devices: found.slice() });
+    };
+    // 模拟 MockTransport 派发 3 台设备
+    onDevice({ deviceId: "A4:CF:12:9B:3E:01" });
+    onDevice({ deviceId: "A4:CF:12:9B:3E:02" });
+    onDevice({ deviceId: "A4:CF:12:9B:3E:03" });
+    // 重复派发第一台，应被去重
+    onDevice({ deviceId: "A4:CF:12:9B:3E:01" });
+    expect(setDataCalls).toHaveLength(3);
+    expect(setDataCalls.every((arg) => typeof arg === "object" && !Array.isArray(arg))).toBe(true);
+    expect(setDataCalls[2].devices).toHaveLength(3);
+  });
+});

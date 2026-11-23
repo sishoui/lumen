@@ -56,13 +56,18 @@ Page({
       return;
     }
     this.setData({ devices: [], scanning: true });
+    // 注：以前这里用 this.setData((prev) => ...) 的函数式写法，微信开发者工具
+    // 在 scan 回调里调 setData(fn) 会报错（"setData is not a function" 或被当成
+    // 普通对象传入），导致设备列表永远清掉后填不回来。改成命令式：先把设备
+    // 追加到本地数组，再一次性 setData。扫描回调里现算 prev 的语义由闭包变量
+    // 承担，行为等价且兼容真机。
+    const found: Array<DiscoveredDevice & { _index: number }> = [];
     void session
       .startScan((device) => {
-        this.setData((prev: any) => {
-          const exists = prev.devices.some((d: DiscoveredDevice) => d.deviceId === device.deviceId);
-          if (exists) return prev;
-          return { devices: [...prev.devices, device] };
-        });
+        const exists = found.some((d) => d.deviceId === device.deviceId);
+        if (exists) return;
+        found.push(device);
+        this.setData({ devices: found.slice() });
       })
       .catch((err) => {
         console.error("[device] 扫描失败", err);

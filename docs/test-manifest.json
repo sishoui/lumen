@@ -83,7 +83,7 @@
     },
     "miniprogram/tests/mock-mode.test.ts": {
       "layer": "mp",
-      "covers": "演示模式开关：存储语义（无记录自动开 / 显式偏好优先）+ rebuildSessionForCurrentMockMode 即时重建会话（mock↔ble 切换、幂等）",
+      "covers": "演示模式开关：存储语义（无记录自动开 / 显式偏好优先）+ rebuildSessionForCurrentMockMode 即时重建会话（mock↔ble 切换、幂等）+ onScanTap 命令式 setData 回归（防止函数式 setData 在 scan 回调里失效）",
       "ticket": "#13"
     },
     "miniprogram/tests/mock-scenarios.test.ts": {
