@@ -179,6 +179,24 @@ describe("设备页失败文案（scanFailureText / connectFailureText）", () =
     const text = connectFailureText(new Error("socket closed"));
     expect(text).toBe("连接失败：socket closed");
   });
+
+  it("连接失败：适配器未初始化类 SDK 原文给人话（#31 回归）", () => {
+    const text = connectFailureText({
+      errMsg: "getBluetoothAdapterState:fail 请先调用 wx.openBluetoothAdapter 接口进行初始化操作",
+    });
+    expect(text).not.toContain("getBluetoothAdapterState");
+    expect(text).toContain("蓝牙");
+    expect(text).toMatch(/开启|初始化|就绪/);
+  });
+
+  it("扫描失败：适配器未初始化类 SDK 原文同样给人话（#31 回归）", () => {
+    const text = scanFailureText({
+      errMsg: "getBluetoothAdapterState:fail 请先调用 wx.openBluetoothAdapter 接口进行初始化操作",
+    });
+    expect(text).not.toContain("getBluetoothAdapterState");
+    expect(text).toContain("蓝牙");
+    expect(text).toMatch(/开启|初始化|就绪/);
+  });
 });
 
 describe("部位/场景 ack-error 使用同一映射", () => {

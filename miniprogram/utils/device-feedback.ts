@@ -17,8 +17,29 @@ function errShape(err: unknown): { code?: number; msg: string } {
 }
 
 /**
+ * 适配器未初始化类消息（微信 SDK 原文）识别（#31）。
+ *
+ * 真机/开发者工具常见失败：getBluetoothAdapterState / 相关 API 在
+ * openBluetoothAdapter 之前被调用，fail 文案含「请先调用
+ * wx.openBluetoothAdapter」「adapter not initialized」等。这类消息没有
+ * 稳定的 errCode，只能按关键字分诊；命中返回 true，让调用方给人话文案。
+ */
+const ADAPTER_NOT_READY_PATTERNS = [
+  "openBluetoothAdapter",
+  "请先调用",
+  "adapter not initialized",
+  "not initialized",
+  "getBluetoothAdapterState:fail",
+];
+
+function isAdapterNotReady(msg: string): boolean {
+  return ADAPTER_NOT_READY_PATTERNS.some((p) => msg.includes(p));
+}
+
+/**
  * 扫描失败 → 可读原因。
- * - 10001 蓝牙未开启；10009 系统不支持 BLE；10002 权限/定位未给；其余透传。
+ * - 10001 蓝牙未开启；10009 系统不支持 BLE；10002 权限/定位未给；
+ *   适配器未初始化类消息 → 请先打开蓝牙；其余透传。
  */
 export function scanFailureText(err: unknown): string {
   const { code, msg } = errShape(err);
@@ -30,13 +51,15 @@ export function scanFailureText(err: unknown): string {
     case 10002:
       return "扫描失败：未授权蓝牙或定位，请在系统设置中允许";
     default:
+      if (isAdapterNotReady(msg)) return "扫描失败：蓝牙未初始化，请重新打开蓝牙";
       return `扫描失败：${msg}`;
   }
 }
 
 /**
  * 连接失败 → 可读原因。
- * - 10001 蓝牙未开启；10003 连接失败（被占用/不在范围）；10004/10005 服务/特征值缺失；10006 已断开；其余透传。
+ * - 10001 蓝牙未开启；10003 连接失败（被占用/不在范围）；10004/10005 服务/特征值缺失；10006 已断开；
+ *   适配器未初始化类消息 → 请先打开蓝牙；其余透传。
  */
 export function connectFailureText(err: unknown): string {
   const { code, msg } = errShape(err);
@@ -52,6 +75,7 @@ export function connectFailureText(err: unknown): string {
     case 10006:
       return "连接失败：连接已断开";
     default:
+      if (isAdapterNotReady(msg)) return "连接失败：蓝牙未初始化，请先打开蓝牙";
       return `连接失败：${msg}`;
   }
 }
