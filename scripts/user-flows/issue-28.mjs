@@ -168,9 +168,11 @@ try {
     `实际 ${JSON.stringify(afterStatic[0])}`);
 
   console.log("\n=== §F 熄灭保存，读回 hue/sat/period 全 0 ===");
-  await driver.call("onLayer0TypeChange", { detail: { value: 6 } }); // 熄灭
+  // 熄灭的 hue/sat 输入是隐藏的，真实用户碰不到；先填入颜色再切熄灭，
+  // 验证类型切换会把不适用参数清零，保存后读回全 0。
   await driver.call("onLayer0HueInput", { detail: { value: "300" } });
   await driver.call("onLayer0SatInput", { detail: { value: "200" } });
+  await driver.call("onLayer0TypeChange", { detail: { value: 6 } }); // 熄灭
   const hintOff = await saveAndReadHint();
   await waitFor(async () => String(await driver.dataGet("hint") ?? "").includes("已保存"), 6000);
   const afterOff = await timeline();
