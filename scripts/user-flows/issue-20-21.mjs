@@ -6,6 +6,10 @@
  * 驱动方式与 scripts/verify-user-flow.mjs 相同：通过 evaluate 调页面事件处理方法，
  * 走真实页面 + session + MockTransport 路径。只断言用户可见的页面数据。
  *
+ * 演示模式的设备运行时随会话存活，上一个脚本留下的步骤会串到这一次。开头把演示
+ * 模式 off→on 重建会话（新的 MockTransport + 设备运行时），删空步骤作为兜底，
+ * 让脚本连续跑两次结果一致。
+ *
  * 用法：
  *   WS=ws://127.0.0.1:9529 node scripts/user-flows/issue-20-21.mjs
  *
@@ -158,6 +162,27 @@ const waitForRoute = async (route, timeoutMs = 10000) => {
   return false;
 };
 
+const waitUntil = async (predicate, timeoutMs = 8000, intervalMs = 150) => {
+  const t0 = Date.now();
+  while (Date.now() - t0 < timeoutMs) {
+    if (await predicate()) return true;
+    await sleep(intervalMs);
+  }
+  return false;
+};
+
+const stepsCount = () => dataGet("steps.length");
+
+/** 会话重建后场景应已归零；若没归零（例如重建不可用），逐步删空作为兜底。 */
+const deleteAllSteps = async () => {
+  for (let guard = 0; guard < 20; guard += 1) {
+    const before = await stepsCount();
+    if (before === 0) return;
+    await call("onDeleteLastStep");
+    if (!(await waitUntil(async () => (await stepsCount()) < before, 4000))) return;
+  }
+};
+
 const goControl = async () => {
   await mp.switchTab("/pages/control/control").catch(() => {});
   await sleep(800);
@@ -165,14 +190,19 @@ const goControl = async () => {
 };
 
 async function main() {
-  console.log("\n=== §A 演示模式连接 ===");
+  console.log("\n=== §A 演示模式重置与连接 ===");
   await mp.switchTab("/pages/device/device").catch(() => {});
   await sleep(1000);
   await waitForRoute("pages/device/device");
-  if ((await dataGet("mockMode")) !== true) {
-    await call("onMockModeChange", { detail: { value: true } });
-    await sleep(1200);
-  }
+  rec("A0 设备页加载", (await curRoute()) === "pages/device/device", `route=${await curRoute()}`);
+
+  // off→on 让页面重建会话：MockTransport 与其中每个设备的运行时都是新实例，
+  // 上一个脚本写进去的场景步骤随之丢弃。
+  await call("onMockModeChange", { detail: { value: false } });
+  await sleep(800);
+  await call("onMockModeChange", { detail: { value: true } });
+  await sleep(1200);
+
   rec("A1 演示模式开", (await dataGet("mockMode")) === true, `mockMode=${await dataGet("mockMode")}`);
 
   await call("onScanTap");
@@ -190,6 +220,10 @@ async function main() {
   await sleep(1500);
   await waitForRoute("pages/scene/scene");
   await sleep(2000);
+  await waitUntil(async () => (await dataGet("loading")) === false, 12000);
+  await deleteAllSteps();
+  const startSteps = await stepsCount();
+  rec("B0 场景起始 0 步（重置生效）", startSteps === 0, `期望 0，实际 ${startSteps}`);
   rec("B1 场景编辑器加载", (await dataGet("loading")) === false, `loading=${await dataGet("loading")}`);
   const partCount = await dataGet("parts.length");
   rec("B2 部位列表非空", partCount > 0, `parts=${partCount}`);
