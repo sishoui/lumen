@@ -48,6 +48,12 @@ export interface Transport {
   /** 协商后的单写容量（chunk_capacity；MTU 未知时 = 20）。 */
   readonly chunkCapacity: number;
 
+  /**
+   * 本连接是否代表一台真实设备的身份：true 时会话把 deviceId 写进身份缓存。
+   * Mock 的虚拟设备不是用户的真机，写缓存会让下次冷启动误判成「有真机记录」。
+   */
+  readonly persistsDeviceIdentity: boolean;
+
   /** 释放订阅与定时器；之后所有方法快速失败。 */
   destroy(): void;
 }

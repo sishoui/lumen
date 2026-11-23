@@ -1,6 +1,7 @@
 /** 设备页（tab）：扫描 LUMEN- 设备 + 点卡连接 + 演示模式开关。 */
 
 import { getSession, rebuildSessionForCurrentMockMode } from "../../utils/session/singleton";
+import { LinkSubscription } from "../../utils/session/link-subscription";
 import { mockModeEnabled, setMockMode, createWxStorage } from "../../utils/mock/mock-mode";
 import type { DiscoveredDevice } from "../../utils/protocol/types";
 
@@ -32,7 +33,7 @@ Page({
     getSession().onShow();
   },
 
-  /** 订阅当前会话的链路状态变化。重建会话后须重新调用。 */
+  /** 订阅当前会话的链路状态变化。重复调用先解绑旧订阅；模式切换后须重新绑定。 */
   bindLinkState() {
     const session = getSession();
     const transport = session.transportRef;
@@ -41,11 +42,15 @@ Page({
       this.setData({
         linkState: state,
         statusText: STATUS_TEXT[state] ?? state,
-        currentDeviceId: transport?.currentDeviceId ?? "",
+        currentDeviceId: transport.currentDeviceId ?? "",
       });
     };
     update();
-    transport?.onLinkChange?.(() => update());
+    this._linkSub.bind(transport, () => update());
+  },
+
+  onUnload() {
+    this._linkSub.unbind();
   },
 
   onScanTap() {
@@ -111,4 +116,6 @@ Page({
       icon: "none",
     });
   },
+
+  _linkSub: new LinkSubscription(),
 });

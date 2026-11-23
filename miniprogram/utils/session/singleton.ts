@@ -48,9 +48,11 @@ export function getSession(): ControlSession {
 export function rebuildSessionForCurrentMockMode(): boolean {
   const next = mockModeEnabled(createWxStorage());
   if (next === mockMode && session !== null) return false;
+  // 先释放旧会话（重连定时器、扫描、真实 BLE 连接），再建新传输层：
+  // 否则两种实现会短暂同时持有 wx 监听与链路。
   const prev = session;
-  session = buildSession();
   if (prev !== null) prev.destroy();
+  session = buildSession();
   return true;
 }
 

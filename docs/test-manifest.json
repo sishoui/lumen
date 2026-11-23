@@ -85,7 +85,7 @@
     },
     "miniprogram/tests/mock-mode.test.ts": {
       "layer": "mp",
-      "covers": "演示模式开关：存储语义（无记录自动开 / 显式偏好优先）+ rebuildSessionForCurrentMockMode 即时重建会话（mock↔ble 切换、幂等）+ onScanTap 命令式 setData 回归（防止函数式 setData 在 scan 回调里失效）",
+      "covers": "演示模式开关：存储语义（无记录自动开 / 显式偏好优先）+ rebuildSessionForCurrentMockMode 即时重建会话（mock↔ble 切换、旧会话 transport 释放、幂等）+ onScanTap 命令式 setData 回归（防止函数式 setData 在 scan 回调里失效）",
       "ticket": "#13"
     },
     "miniprogram/tests/mock-scenarios.test.ts": {
@@ -202,6 +202,16 @@
       "layer": "ui",
       "covers": "灯效类型映射与字段显隐（#27）：底层选项无空层、叠加层含空层、心跳/静态/熄灭字段显隐、空层→呼吸默认亮度 50、呼吸保存后清回空层并重进读回 0xFF",
       "ticket": "#27"
+    },
+    "miniprogram/tests/demo-lifecycle.test.ts": {
+      "layer": "mp",
+      "covers": "演示模式生命周期（#33）：能力位决定身份缓存写入（Mock 与 capability=false 不写、冷启动仍判定演示；capability=true 写入 deviceId）、destroy 先取消重连定时器再销毁 transport 且重复调用幂等、BleTransport.destroy 停止扫描并断开真实连接、模式切换后旧 transport 扫描/链路回调停止且旧回调不写会话、新会话只有新监听、页面链路订阅重复绑定先解绑且 unbind 幂等",
+      "ticket": "#33"
+    },
+    "scripts/user-flows/issue-33.mjs": {
+      "layer": "ui",
+      "covers": "L4 演示模式切换（#33）：演示连接后控制页开关可用 → 切真实模式（不扫真机）设备列表清空且未连接 → 切回演示模式列表清空并重新扫描到同一台设备 → 重新连接后设备为默认状态且开关仍生效；缺自动化端口时 SKIP",
+      "ticket": "#33"
     }
   }
 }

@@ -7,7 +7,7 @@
 
 import { describe, it, expect, beforeEach } from "vitest";
 import { mockModeEnabled, setMockMode } from "../utils/mock/mock-mode";
-import { DEVICE_CACHE_KEY, MOCK_MODE_KEY } from "../utils/mock/mock-devices";
+import { DEVICE_CACHE_KEY, MOCK_MODE_KEY, MOCK_DEVICES } from "../utils/mock/mock-devices";
 import {
   getSession,
   resetSession,
@@ -85,18 +85,22 @@ describe("rebuildSessionForCurrentMockMode：开关即时生效", () => {
     expect(isMockSession()).toBe(true);
   });
 
-  it("切到真实模式：重建后 isMockSession 变 false，单例指针已换", () => {
-    // 先建出 mock 会话（默认分支）
+  it("切到真实模式：重建后 isMockSession 变 false，旧会话的 transport 已释放", async () => {
+    // 先建出 mock 会话（默认分支）并连接，让「释放」有可观察的痕迹
     const first = getSession();
     expect(isMockSession()).toBe(true);
+    await first.connect(MOCK_DEVICES[0].deviceId, MOCK_DEVICES[0].broadcastName);
+    expect(first.transportRef.currentDeviceId).toBe(MOCK_DEVICES[0].deviceId);
 
     // 模拟「用户关掉演示模式」：写入显式偏好，直接调 rebuild
     const env = withWxStorage({ [MOCK_MODE_KEY]: "0" });
     try {
       expect(rebuildSessionForCurrentMockMode()).toBe(true);
       expect(isMockSession()).toBe(false);
-      // 旧 mock 会话（first）被回收：ControlSession.destroy 清状态、换单例指针。
-      // transport 的释放由页面订阅随之失效来保证，这里断言单例指针已换即可。
+      // 旧 mock 会话被销毁：transport 断开、状态清空、单例指针已换。
+      expect(first.transportRef.currentDeviceId).toBeNull();
+      expect(first.transportRef.linkState).toBe("idle");
+      expect(first.deviceState).toBeNull();
       expect(getSession()).not.toBe(first);
     } finally {
       env.restore();

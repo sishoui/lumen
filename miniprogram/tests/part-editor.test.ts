@@ -36,6 +36,7 @@ class QueryLayoutTimeoutTransport implements Transport {
   get linkState() { return this.inner.linkState; }
   get currentDeviceId() { return this.inner.currentDeviceId; }
   get chunkCapacity() { return this.inner.chunkCapacity; }
+  get persistsDeviceIdentity() { return this.inner.persistsDeviceIdentity; }
   destroy() { this.inner.destroy(); }
 }
 

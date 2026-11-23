@@ -23,6 +23,8 @@ export function ackFrame(request: SentRequest, resultCode = 0): Uint8Array {
 
 export class ScriptedTransport implements Transport {
   readonly sent: SentRequest[] = [];
+  /** 默认按真实设备身份处理；测试要模拟演示设备时显式传 false。 */
+  readonly persistsDeviceIdentity: boolean;
   private frameListeners: Array<(frame: Uint8Array) => void> = [];
   private linkListeners: Array<(state: LinkState) => void> = [];
   private adapterListeners: Array<(state: AdapterState) => void> = [];
@@ -32,7 +34,10 @@ export class ScriptedTransport implements Transport {
   constructor(
     private readonly state: DeviceState,
     private readonly respond: RequestResponder = () => undefined,
-  ) {}
+    opts: { persistsDeviceIdentity?: boolean } = {},
+  ) {
+    this.persistsDeviceIdentity = opts.persistsDeviceIdentity ?? true;
+  }
 
   get linkState(): LinkState { return this._linkState; }
   get currentDeviceId(): string | null { return this._currentDeviceId; }

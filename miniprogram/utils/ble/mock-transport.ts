@@ -60,6 +60,8 @@ export class MockTransport implements Transport {
   get linkState(): LinkState { return this._linkState; }
   get currentDeviceId(): string | null { return this._currentDeviceId; }
   get chunkCapacity(): number { return DEFAULT_CHUNK_CAPACITY; }
+  /** 演示设备不是用户的真机：连接不得污染真实设备身份缓存。 */
+  readonly persistsDeviceIdentity = false;
 
   onFrame(listener: FrameListener): () => void {
     this.frameListeners.push(listener);
@@ -188,5 +190,7 @@ export class MockTransport implements Transport {
     this.adapterListeners.length = 0;
     this.scanListener = null;
     this.runtimes.clear();
+    this._currentDeviceId = null;
+    this._linkState = "idle";
   }
 }

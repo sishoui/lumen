@@ -102,6 +102,8 @@ export class BleTransport implements Transport {
   get linkState(): LinkState { return this._linkState; }
   get currentDeviceId(): string | null { return this._currentDeviceId; }
   get chunkCapacity(): number { return this._chunkCapacity; }
+  /** 真实 BLE 连接代表用户的真机身份：会话应把它写进身份缓存。 */
+  readonly persistsDeviceIdentity = true;
 
   onFrame(listener: FrameListener): () => void {
     this.frameListeners.push(listener);
@@ -253,14 +255,22 @@ export class BleTransport implements Transport {
   }
 
   destroy(): void {
+    if (this.destroyed) return;
     this.destroyed = true;
     this.stopScan();
+    // 释放真实连接：切回演示模式后旧 transport 不该继续占着 BLE 链路。
+    const deviceId = this._currentDeviceId;
+    this._currentDeviceId = null;
+    if (deviceId !== null) {
+      void this.wxApi.closeBLEConnection(deviceId).catch(() => undefined);
+    }
     this.writer.reset(new Error("destroy"));
     this.ackWaiters.reset(new Error("destroy"));
     this.assembler.reset();
     this.frameListeners.length = 0;
     this.linkListeners.length = 0;
     this.adapterListeners.length = 0;
+    this._linkState = "idle";
   }
 
   private assertNotDestroyed(): void {

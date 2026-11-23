@@ -101,6 +101,7 @@ export class ControlSession {
   private seqCounter = 1;
   private epoch = 0;
   private destroyed = false;
+  private offTransportLink: () => void = () => undefined;
 
   constructor(opts: SessionOptions) {
     this.transport = opts.transport;
@@ -133,7 +134,7 @@ export class ControlSession {
     );
 
     // 订阅传输层事件
-    this.transport.onLinkChange((state) => {
+    this.offTransportLink = this.transport.onLinkChange((state) => {
       this._linkState = state;
       this.reconnect.onLinkChange(state);
     });
@@ -197,11 +198,14 @@ export class ControlSession {
   private handleConnected(state: DeviceState): void {
     this.latestState = state;
     // epoch 由 connect / disconnect 递增；这里再递增会让刚入泵的重建结果被误判为 stale。
-    const cached = this.cachedDevice();
+    if (this.transport.persistsDeviceIdentity) this.persistIdentity(this.latestDeviceInfo?.hwId);
+  }
+
+  /** 只在真实设备连接时写身份缓存；演示设备不冒充用户的真机。 */
+  private persistIdentity(hwId?: string): void {
     const deviceId = this.transport.currentDeviceId;
-    if (deviceId) {
-      saveCachedDevice(this.storage, deviceId, cached?.broadcastName, this.latestDeviceInfo?.hwId);
-    }
+    if (!deviceId) return;
+    saveCachedDevice(this.storage, deviceId, this.cachedDevice()?.broadcastName, hwId);
   }
 
   private async runRebuild(state: DeviceState, epochAtRun: number): Promise<void> {
@@ -218,9 +222,8 @@ export class ControlSession {
       this.latestScene = result.scene;
       this.latestDeviceInfo = result.deviceInfo;
       // 缓存 hwId
-      if (result.deviceInfo && this.transport.currentDeviceId) {
-        const cached = this.cachedDevice();
-        saveCachedDevice(this.storage, this.transport.currentDeviceId, cached?.broadcastName, result.deviceInfo.hwId);
+      if (result.deviceInfo && this.transport.persistsDeviceIdentity) {
+        this.persistIdentity(result.deviceInfo.hwId);
       }
     } catch {
       /* 重建失败不阻塞 connect */
@@ -563,8 +566,15 @@ export class ControlSession {
   }
 
   destroy(): void {
+    if (this.destroyed) return;
     this.destroyed = true;
+    // 先断掉所有会再次触发的来源，再释放传输层：旧连接的回调没有机会写进新会话。
+    this.reconnect.cancelAutoReconnect();
+    this.offTransportLink();
+    this.offTransportLink = () => undefined;
     this.brightnessThrottle?.cancel();
+    this.epoch += 1;
+    this.transport.destroy();
     this.clearDeviceState();
   }
 }
