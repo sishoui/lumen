@@ -50,11 +50,14 @@ Page({
 
   onBrightnessChanging(e: any) {
     getSession().setBrightness(e.detail.value as number);
+    // 立即反映到页面 state（乐观更新，设备值由后续 ACK readState 校正）
+    this.refresh();
   },
 
   onBrightnessChange(e: any) {
     getSession().setBrightness(e.detail.value as number);
     getSession().flushBrightness();
+    this.refresh();
   },
 
   onStripPowerChange(e: any) {

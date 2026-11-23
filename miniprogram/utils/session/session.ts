@@ -12,6 +12,10 @@
  */
 
 import type { Transport } from "../ble/transport";
+import {
+  parseStripConfigReport, parseDeviceInfoReport, parseLayoutReport, parseLayoutListEnd,
+  parseScenePartReport, parseSceneStepReport, parseSceneListEnd, buildSceneReport,
+} from "../protocol/commands";
 import type { TimerApi } from "../ble/throttle";
 import { LatestWinsThrottle } from "../ble/throttle";
 import type { AdapterState, DeviceInfo, DeviceState, DiscoveredDevice, LayoutPart, LayoutReadback, LinkState, SceneReport, SceneStep, StripConfig } from "../protocol/types";
@@ -23,7 +27,7 @@ import {
 } from "../protocol/commands";
 import { encodeFrame } from "../protocol/frame";
 import { DEVICE_CMD, CMD } from "../protocol/constants";
-import { rebuildFromDevice } from "./rebuild";
+import { rebuildFromDevice, queryMultiFrame } from "./rebuild";
 import { ReconnectSupervisor } from "./reconnect";
 import type { SessionStorage, CachedDevice } from "./device-cache";
 import { loadCachedDevice, saveCachedDevice, createWxStorage } from "./device-cache";
@@ -434,25 +438,70 @@ export class ControlSession {
   queryLayout(stripId: number): Promise<LayoutResult> {
     return this.enqueue(async (epochAtSend) => {
       try {
-        const cmd = cmdQueryLayout(stripId);
-        // 复用 rebuild 的 queryMultiFrame 逻辑（简化：直接读 layout 缓存）
-        const cached = this.latestLayout[stripId];
-        if (cached) return { kind: "ok", layout: cached };
-        void cmd;
+        // 每次都从设备重新查询（不读缓存），保证编辑器读到最新数据
+        const result = await this.runLayoutQuery(stripId);
         if (epochAtSend !== this.epoch) return { kind: "stale" };
-        return { kind: "error", message: "QueryLayout 未缓存" };
+        if (result) {
+          this.latestLayout[stripId] = result;
+          return { kind: "ok", layout: result };
+        }
+        return { kind: "error", message: "QueryLayout 查询失败" };
       } catch (err) {
         return { kind: "error", message: err instanceof Error ? err.message : String(err) };
       }
     });
   }
 
+  private async runLayoutQuery(stripId: number): Promise<LayoutReadback | null> {
+    const res = await queryMultiFrame(this.transport, CMD.QUERY_LAYOUT, new Uint8Array([stripId]), this.nextSeq(), DEVICE_CMD.LAYOUT_LIST_END, this.ackTimeoutMs);
+    if (!res.ok) return null;
+    const parts = res.frames
+      .filter((f) => f.length >= 3 && f[2] === DEVICE_CMD.LAYOUT_REPORT)
+      .map((f) => parseLayoutReport(f.slice(6, f.length - 2)));
+    const endFrame = res.frames.find((f) => f.length >= 3 && f[2] === DEVICE_CMD.LAYOUT_LIST_END);
+    const partMask = endFrame && endFrame.length >= 8 ? endFrame[7] : 0;
+    return { stripId, parts, partMask };
+  }
+
   queryScene(sceneId: number): Promise<SceneResult> {
-    return this.enqueue(async () => {
+    return this.enqueue(async (epochAtSend) => {
+      // 每次都从设备重新查询（不读缓存），保证编辑器读到最新数据
       const cached = this.latestScene;
-      if (cached && cached.sceneId === sceneId) return { kind: "ok", scene: cached };
-      return { kind: "error", message: "QueryScene 未缓存" };
+      if (cached && cached.sceneId === sceneId) {
+        // 即使缓存匹配也重新查询，因为编辑器可能刚写了步骤
+      }
+      try {
+        const cmd = cmdQueryScene(sceneId);
+        // 用 rebuild 的 queryMultiFrame 逻辑重新查询
+        const result = await this.runSceneQuery(sceneId);
+        if (epochAtSend !== this.epoch) return { kind: "stale" };
+        if (result) {
+          this.latestScene = result;
+          return { kind: "ok", scene: result };
+        }
+        return { kind: "error", message: "QueryScene 查询失败" };
+      } catch (err) {
+        return { kind: "error", message: err instanceof Error ? err.message : String(err) };
+      }
     });
+  }
+
+  private async runSceneQuery(sceneId: number): Promise<SceneReport | null> {
+    const res = await queryMultiFrame(this.transport, CMD.QUERY_SCENE, new Uint8Array([sceneId]), this.nextSeq(), DEVICE_CMD.SCENE_LIST_END, this.ackTimeoutMs);
+    if (!res.ok) return null;
+    const parts = res.frames
+      .filter((f) => f.length >= 3 && f[2] === DEVICE_CMD.SCENE_PART_REPORT)
+      .map((f) => parseScenePartReport(f.slice(6, f.length - 2)));
+    const steps = res.frames
+      .filter((f) => f.length >= 3 && f[2] === DEVICE_CMD.SCENE_STEP_REPORT)
+      .map((f) => parseSceneStepReport(f.slice(6, f.length - 2)));
+    const endFrame = res.frames.find((f) => f.length >= 3 && f[2] === DEVICE_CMD.SCENE_LIST_END);
+    let name = "";
+    if (endFrame && endFrame.length >= 2 + 26) {
+      const parsed = parseSceneListEnd(endFrame.slice(6, endFrame.length - 2));
+      name = parsed.name;
+    }
+    return buildSceneReport(sceneId, name, parts, steps);
   }
 
   queryDeviceInfo(): Promise<DeviceInfoResult> {

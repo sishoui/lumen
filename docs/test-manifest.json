@@ -150,6 +150,16 @@
       "layer": "server",
       "covers": "两表两视图结构与迁移：SCHEMA_SQL / MIGRATIONS / user_version",
       "ticket": "#14"
+    },
+    "miniprogram/tests/part-editor.test.ts": {
+      "layer": "mp",
+      "covers": "部位编辑器（引脚分区）：段互斥校验、布局往返（MockTransport LayoutCommit）、相位模式、灯珠占用判断、readbackToParts",
+      "ticket": "#引脚分区"
+    },
+    "miniprogram/tests/scene-editor.test.ts": {
+      "layer": "mp",
+      "covers": "场景编辑器（时间轴）：步骤时长校验、循环模式校验、ScenePart+SceneStep 往返、场景名读写、ActivateScene、越界 stepIndex 拒绝",
+      "ticket": "#时间轴"
     }
   }
 }

@@ -27,14 +27,36 @@ import {
   LAYOUT_REPORT_BYTES,
   SCENE_STEP_BYTES,
   SCENE_NAME_BYTES,
+  NAME_BYTES,
+  LAYER_BYTES,
+  LOOP_MAX,
   CMD,
   DEVICE_CMD,
   RESULT,
 } from "../protocol/constants";
 import { encodeFrame } from "../protocol/frame";
 import { parseState, parseStripConfigReport, parseDeviceInfoReport } from "../protocol/commands";
-import type { DeviceInfo, DeviceState, LinkState } from "../protocol/types";
+import type { DeviceInfo, DeviceState, LinkState, SceneStepReport } from "../protocol/types";
 import type { MockDeviceSpec } from "./mock-devices";
+
+interface MockLayoutPart {
+  partId: number;
+  name: string;
+  segs: Array<[number, number]>;
+  phase: number;
+}
+
+interface MockScenePartHead {
+  stepCount: number;
+  loop: number;
+  on: boolean;
+}
+
+interface MockSceneStep {
+  durationMs: number;
+  layer0: Uint8Array; // 9 bytes raw
+  layer1: Uint8Array; // 9 bytes raw
+}
 
 export type MockScenario = "normal" | "slow" | "flaky" | "offline";
 
@@ -54,7 +76,12 @@ export class MockDeviceRuntime {
   private layoutValid: boolean;
   private stripLedCounts: number[];
   private partCounts: number[];
-  private layout: Map<number, { partId: number; name: string; segs: Array<[number, number]>; phase: number }[]>;
+  private layout: Map<number, MockLayoutPart[]>;
+  /** 场景数据：sceneId → (stripId, partId) → { head, steps[] } */
+  private scenes: Map<number, Map<string, { head: MockScenePartHead; steps: MockSceneStep[] }>>;
+  private sceneNames: Map<number, string>;
+  /** 布局编辑暂存区（LayoutWrite 之后、LayoutCommit 之前暂存，Commit 时搬到 layout）。 */
+  private layoutStaging: Map<number, MockLayoutPart[]>;
 
   constructor(spec: MockDeviceSpec, opts: MockRuntimeOptions = {}) {
     this.spec = spec;
@@ -80,6 +107,14 @@ export class MockDeviceRuntime {
         segs: p.segs.map(([s, e]) => [s, e] as [number, number]),
         phase: 0,
       });
+    }
+    this.layoutStaging = new Map();
+    this.scenes = new Map();
+    this.sceneNames = new Map();
+    // 为每套场景初始化空部位表
+    for (let sid = 0; sid < MAX_SCENES; sid += 1) {
+      this.scenes.set(sid, new Map());
+      this.sceneNames.set(sid, `场景 ${sid + 1}`);
     }
   }
 
@@ -186,11 +221,71 @@ export class MockDeviceRuntime {
         const stripId = payload[0];
         const partCount = payload[1];
         if (stripId >= MAX_STRIPS || partCount > MAX_PARTS) { result = RESULT.INVALID_PARAM; break; }
-        this.layout.set(stripId, []);
+        // 暂存到 staging（Commit 前不生效）
+        this.layoutStaging.set(stripId, []);
         this.partCounts[stripId] = partCount;
         break;
       }
+      case CMD.LAYOUT_PART: {
+        // payload: strip_id, part_id, name_len, name[24], seg_count, phase = 29 bytes
+        if (payload.length !== 29) { result = RESULT.BAD_LENGTH; break; }
+        const stripId = payload[0];
+        const partId = payload[1];
+        const nameLen = payload[2];
+        if (stripId >= MAX_STRIPS || partId >= MAX_PARTS || nameLen > NAME_BYTES) { result = RESULT.INVALID_PARAM; break; }
+        const nameBytes = payload.slice(3, 3 + nameLen);
+        const name = new TextDecoder().decode(nameBytes);
+        const segCount = payload[27];
+        const phase = payload[28];
+        if (segCount > MAX_PART_SEGS || phase > 1) { result = RESULT.INVALID_PARAM; break; }
+        const staging = this.layoutStaging.get(stripId);
+        if (!staging) { result = RESULT.INVALID_PARAM; break; }
+        // 确保数组足够长
+        while (staging.length <= partId) {
+          staging.push({ partId: staging.length, name: "", segs: [], phase: 0 });
+        }
+        staging[partId] = { partId, name, segs: [], phase };
+        break;
+      }
+      case CMD.LAYOUT_SEG: {
+        // payload: strip_id, part_id, seg_id, start, end = 5 bytes
+        if (payload.length !== 5) { result = RESULT.BAD_LENGTH; break; }
+        const stripId = payload[0];
+        const partId = payload[1];
+        const segId = payload[2];
+        const start = payload[3];
+        const end = payload[4];
+        if (stripId >= MAX_STRIPS || partId >= MAX_PARTS || segId >= MAX_PART_SEGS) { result = RESULT.INVALID_PARAM; break; }
+        if (start > end) { result = RESULT.INVALID_PARAM; break; }
+        const staging = this.layoutStaging.get(stripId);
+        if (!staging || partId >= staging.length) { result = RESULT.INVALID_PARAM; break; }
+        const part = staging[partId];
+        // 校验段互斥（同链其它部位）
+        for (const other of staging) {
+          if (other.partId === partId) continue;
+          for (const [s, e] of other.segs) {
+            if (start <= e && end >= s) { result = RESULT.INVALID_PARAM; break; }
+          }
+          if (result !== RESULT.OK) break;
+        }
+        if (result !== RESULT.OK) break;
+        // 校验 end < led_count
+        const ledCount = this.stripLedCounts[stripId] ?? 100;
+        if (end >= ledCount) { result = RESULT.INVALID_PARAM; break; }
+        // 确保 segs 数组足够长
+        while (part.segs.length <= segId) part.segs.push([0, 0]);
+        part.segs[segId] = [start, end];
+        break;
+      }
       case CMD.LAYOUT_COMMIT: {
+        // 把 staging 搬到 layout，重置 partCounts
+        for (const [stripId, parts] of this.layoutStaging) {
+          const filtered = parts.filter((p) => p.segs.length > 0);
+          this.layout.set(stripId, filtered);
+          this.partCounts[stripId] = filtered.length;
+        }
+        // 也保留已有的 layout（如果有未被 LAYOUT_WRITE 覆盖的链）
+        this.layoutStaging.clear();
         this.layoutValid = true;
         break;
       }
@@ -198,6 +293,76 @@ export class MockDeviceRuntime {
         break;
       }
       case CMD.SCENE_PART: {
+        // payload: scene_id, strip_id, part_id, step_count, loop, on = 6 bytes
+        if (payload.length !== 6) { result = RESULT.BAD_LENGTH; break; }
+        const sceneId = payload[0];
+        const stripId = payload[1];
+        const partId = payload[2];
+        const stepCount = payload[3];
+        const loop = payload[4];
+        const on = payload[5] === 1;
+        if (sceneId >= MAX_SCENES || stripId >= MAX_STRIPS || partId >= MAX_PARTS) { result = RESULT.INVALID_PARAM; break; }
+        if (stepCount > MAX_STEPS || loop > LOOP_MAX) { result = RESULT.INVALID_PARAM; break; }
+        const sceneMap = this.scenes.get(sceneId);
+        if (!sceneMap) { result = RESULT.INVALID_PARAM; break; }
+        const key = `${stripId}:${partId}`;
+        const existing = sceneMap.get(key);
+        if (existing) {
+          // 只有 stepCount 真的变了才清空已有步骤
+          if (existing.head.stepCount !== stepCount) {
+            existing.steps = [];
+          }
+          existing.head = { stepCount, loop, on };
+        } else {
+          sceneMap.set(key, {
+            head: { stepCount, loop, on },
+            steps: [],
+          });
+        }
+        // 同步更新 partCounts，让 rebuild 能查到
+        this.partCounts[stripId] = Math.max(this.partCounts[stripId], partId + 1);
+        break;
+      }
+      case CMD.SCENE_STEP: {
+        // payload: scene_id, strip_id, part_id, step_index, duration_lo, duration_hi, layer0[9], layer1[9] = 24 bytes
+        if (payload.length !== SCENE_STEP_BYTES) { result = RESULT.BAD_LENGTH; break; }
+        const sceneId = payload[0];
+        const stripId = payload[1];
+        const partId = payload[2];
+        const stepIndex = payload[3];
+        const durationMs = payload[4] | (payload[5] << 8);
+        if (sceneId >= MAX_SCENES || stripId >= MAX_STRIPS || partId >= MAX_PARTS || stepIndex >= MAX_STEPS) { result = RESULT.INVALID_PARAM; break; }
+        const sceneMap = this.scenes.get(sceneId);
+        if (!sceneMap) { result = RESULT.INVALID_PARAM; break; }
+        const key = `${stripId}:${partId}`;
+        const entry = sceneMap.get(key);
+        if (!entry || stepIndex >= entry.head.stepCount) { result = RESULT.INVALID_PARAM; break; }
+        const layer0 = payload.slice(6, 15);
+        const layer1 = payload.slice(15, 24);
+        // 确保 steps 数组足够长
+        while (entry.steps.length <= stepIndex) {
+          entry.steps.push({
+            durationMs: 0,
+            layer0: new Uint8Array(LAYER_BYTES),
+            layer1: new Uint8Array(LAYER_BYTES),
+          });
+        }
+        entry.steps[stepIndex] = {
+          durationMs,
+          layer0: layer0.slice(),
+          layer1: layer1.slice(),
+        };
+        break;
+      }
+      case CMD.SCENE_NAME: {
+        // payload: scene_id, name_len, name[24] = 26 bytes
+        if (payload.length !== SCENE_NAME_BYTES) { result = RESULT.BAD_LENGTH; break; }
+        const sceneId = payload[0];
+        const nameLen = payload[1];
+        if (sceneId >= MAX_SCENES || nameLen > NAME_BYTES) { result = RESULT.INVALID_PARAM; break; }
+        const nameBytes = payload.slice(2, 2 + nameLen);
+        const name = new TextDecoder().decode(nameBytes);
+        this.sceneNames.set(sceneId, name);
         break;
       }
       case CMD.ACTIVATE_SCENE: {
@@ -248,13 +413,13 @@ export class MockDeviceRuntime {
           const buf = new Uint8Array(LAYOUT_REPORT_BYTES);
           buf[0] = stripId;
           buf[1] = p.partId;
-          buf[2] = p.name.length; // 近似：名字字节数
           // 名字 UTF-8 编码
           const nameBytes = new TextEncoder().encode(p.name);
-          buf.set(nameBytes.subarray(0, 24), 3);
+          buf[2] = nameBytes.length;
+          buf.set(nameBytes.subarray(0, NAME_BYTES), 3);
           buf[27] = segs.length;
           buf[28] = p.phase;
-          for (let i = 0; i < segs.length && i < 8; i += 1) {
+          for (let i = 0; i < segs.length && i < MAX_PART_SEGS; i += 1) {
             buf[29 + i * 2] = segs[i][0];
             buf[30 + i * 2] = segs[i][1];
           }
@@ -263,6 +428,44 @@ export class MockDeviceRuntime {
         // LayoutListEnd
         const mask = parts.reduce((m, p) => m | (1 << p.partId), 0);
         frames.push(encodeFrame(DEVICE_CMD.LAYOUT_LIST_END, seq, new Uint8Array([stripId, mask])));
+      } else if (cmd === CMD.QUERY_SCENE) {
+        const sceneId = payload[0];
+        const sceneMap = this.scenes.get(sceneId);
+        const sceneName = this.sceneNames.get(sceneId) ?? "";
+        if (sceneMap) {
+          // ScenePartReport + SceneStepReport for each part
+          for (const [key, entry] of sceneMap) {
+            const [stripId, partId] = key.split(":").map(Number);
+            const headBuf = new Uint8Array(6);
+            headBuf[0] = sceneId;
+            headBuf[1] = stripId;
+            headBuf[2] = partId;
+            headBuf[3] = entry.head.stepCount;
+            headBuf[4] = entry.head.loop;
+            headBuf[5] = entry.head.on ? 1 : 0;
+            frames.push(encodeFrame(DEVICE_CMD.SCENE_PART_REPORT, seq, headBuf));
+            // Steps
+            for (const [stepIdx, step] of entry.steps.entries()) {
+              const stepBuf = new Uint8Array(SCENE_STEP_BYTES);
+              stepBuf[0] = sceneId;
+              stepBuf[1] = stripId;
+              stepBuf[2] = partId;
+              stepBuf[3] = stepIdx;
+              stepBuf[4] = step.durationMs & 0xff;
+              stepBuf[5] = (step.durationMs >> 8) & 0xff;
+              stepBuf.set(step.layer0, 6);
+              stepBuf.set(step.layer1, 15);
+              frames.push(encodeFrame(DEVICE_CMD.SCENE_STEP_REPORT, seq, stepBuf));
+            }
+          }
+        }
+        // SceneListEnd
+        const endBuf = new Uint8Array(SCENE_NAME_BYTES);
+        const nameBytes = new TextEncoder().encode(sceneName);
+        endBuf[0] = sceneId;
+        endBuf[1] = nameBytes.length;
+        endBuf.set(nameBytes.subarray(0, NAME_BYTES), 2);
+        frames.push(encodeFrame(DEVICE_CMD.SCENE_LIST_END, seq, endBuf));
       }
     }
 

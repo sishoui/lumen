@@ -1,6 +1,84 @@
 <view class="page">
   <view class="page-title">部位编辑器（链 {{stripId}}）</view>
-  <view class="card">
-    <view class="shell-placeholder">骨架壳：拖选方格与时间轴交互留待 sketch 之后实现</view>
+
+  <view wx:if="{{loading}}" class="card">
+    <view class="shell-placeholder">加载布局中…</view>
   </view>
+
+  <view wx:elif="{{!ledCount}}" class="card">
+    <view class="shell-placeholder">{{hint}}</view>
+  </view>
+
+  <block wx:else>
+    <!-- 部位切换 -->
+    <view class="card">
+      <view class="row">
+        <text class="label">部位（{{partCount}} 个槽位）</text>
+      </view>
+      <scroll-view scroll-x class="part-tabs">
+        <view wx:for="{{parts}}" wx:key="partId"
+          class="part-tab {{activePartId === item.partId ? 'active' : ''}}"
+          bindtap="onPartTap" data-part="{{item.partId}}">
+          {{item.name || '部位 ' + item.partId}}
+        </view>
+      </scroll-view>
+    </view>
+
+    <!-- 灯珠方格 -->
+    <view class="card">
+      <view class="row">
+        <text class="label">灯珠方格（{{ledCount}} 颗）</text>
+        <text wx:if="{{selecting}}" class="value">选中 {{selecting.start}}–{{selecting.end}}</text>
+      </view>
+      <view class="led-grid">
+        <view wx:for="{{ledCells}}" wx:key="index"
+          class="led-cell {{item.occupied ? 'occupied' : ''}} {{item.partId === activePartId ? 'mine' : ''}}"
+          bindtap="onLedTap" data-index="{{item.index}}">
+          {{item.index}}
+        </view>
+      </view>
+      <view class="row" wx:if="{{selecting}}">
+        <view class="button secondary" bindtap="onCancelSelect">取消选段</view>
+      </view>
+      <view class="hint">点击一颗灯珠开始选段，再点另一颗结束。 occupied = 已被某部位占用</view>
+    </view>
+
+    <!-- 段列表 -->
+    <view class="card">
+      <view class="row">
+        <text class="label">段（{{segs.length}}/{{8}}）</text>
+        <view class="button secondary small" bindtap="onClearSegs">清空</view>
+      </view>
+      <view wx:if="{{segs.length === 0}}" class="hint">未分配段——在方格上拖选添加</view>
+      <view wx:for="{{segs}}" wx:key="index" class="seg-row">
+        <text class="value">段 {{index + 1}}：[{{item[0]}}–{{item[1]}}]</text>
+        <view class="button danger small" bindtap="onDeleteSeg" data-idx="{{index}}">删除</view>
+      </view>
+    </view>
+
+    <!-- 属性 -->
+    <view class="card">
+      <view class="row">
+        <text class="label">部位名</text>
+        <input class="name-input" value="{{partName}}" bindinput="onNameInput"
+          placeholder="给部位起个名字" maxlength="24" />
+      </view>
+      <view class="row">
+        <text class="label">相位模式</text>
+        <picker mode="selector" range="{{phaseOptions}}" range-key="label"
+          bindchange="onPhaseChange" value="{{phase}}">
+          <view class="picker-text">{{phaseOptions[phase].label}}</view>
+        </picker>
+      </view>
+      <view class="hint">连续 = 多段按升序拼接取样；各自起点 = 每段从自己的 0 开始</view>
+    </view>
+
+    <!-- 提交 -->
+    <view class="card">
+      <view wx:if="{{hint}}" class="hint">{{hint}}</view>
+      <view class="button {{canCommit ? '' : 'disabled'}}" bindtap="onCommitTap">
+        提交布局（LayoutCommit）
+      </view>
+    </view>
+  </block>
 </view>

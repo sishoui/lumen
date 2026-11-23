@@ -1,6 +1,149 @@
 <view class="page">
   <view class="page-title">场景编辑器（场景 {{sceneId + 1}}）</view>
-  <view class="card">
-    <view class="shell-placeholder">骨架壳：每部位时间轴（步数/每步时长/两层灯效）交互留待 sketch 之后实现</view>
+
+  <view wx:if="{{loading}}" class="card">
+    <view class="shell-placeholder">加载场景中…</view>
   </view>
+
+  <block wx:else>
+    <!-- 场景名 + 激活 -->
+    <view class="card">
+      <view class="row">
+        <text class="label">场景名</text>
+        <input class="name-input" value="{{sceneName}}" bindinput="onSceneNameInput"
+          placeholder="场景名" maxlength="24" />
+        <view class="button small" bindtap="onSaveSceneName">保存</view>
+      </view>
+      <view class="row">
+        <view class="button" bindtap="onActivateTap">激活此场景</view>
+      </view>
+    </view>
+
+    <!-- 部位选择 -->
+    <view class="card">
+      <view class="row">
+        <text class="label">部位时间轴</text>
+      </view>
+      <scroll-view scroll-x class="part-tabs">
+        <view wx:for="{{parts}}" wx:key="key"
+          class="part-tab {{activeKey === item.stripId + ':' + item.partId ? 'active' : ''}}"
+          bindtap="onPartTap" data-strip="{{item.stripId}}" data-part="{{item.partId}}">
+          {{item.name || '部位 ' + item.partId}}（{{item.stepCount}} 步）
+        </view>
+      </scroll-view>
+    </view>
+
+    <!-- 循环模式 -->
+    <view class="card">
+      <view class="row">
+        <text class="label">循环模式</text>
+        <picker mode="selector" range="{{loopOptions}}" range-key="label"
+          bindchange="onLoopChange" value="{{loop}}">
+          <view class="picker-text">{{loopOptions[loop].label}}</view>
+        </picker>
+      </view>
+      <view class="hint">不循环 = 停在最后一帧；全部循环 = 回到第一步；末步循环 = 前 N−1 步各播一次后原地重播末步</view>
+    </view>
+
+    <!-- 步骤列表 -->
+    <view class="card">
+      <view class="row">
+        <text class="label">步骤（{{steps.length}}/8）· 总时长 {{totalMs}}ms</text>
+        <view class="row-actions">
+          <view class="button secondary small" bindtap="onAddStep">+ 添加</view>
+          <view class="button danger small" bindtap="onDeleteLastStep">- 删除末步</view>
+        </view>
+      </view>
+      <view wx:if="{{steps.length === 0}}" class="hint">无步骤——点「添加」创建</view>
+      <view wx:for="{{steps}}" wx:key="stepIndex"
+        class="step-row {{activeStepIndex === index ? 'active' : ''}}"
+        bindtap="onStepTap" data-index="{{index}}">
+        <text class="step-num">{{index + 1}}</text>
+        <text class="step-duration">{{item.durationLabel}}</text>
+        <text class="step-layer0">{{item.layer0Label}}</text>
+        <text class="step-layer1">{{item.layer1Label}}</text>
+      </view>
+    </view>
+
+    <!-- 步骤编辑器 -->
+    <view wx:if="{{steps.length > 0}}" class="card">
+      <view class="row">
+        <text class="label">步骤 {{activeStepIndex + 1}} 编辑</text>
+      </view>
+
+      <!-- 时长 -->
+      <view class="row">
+        <text class="label">时长（ms）</text>
+        <input class="num-input" type="number" value="{{durationMs}}" bindinput="onDurationInput" />
+      </view>
+
+      <!-- 层0 -->
+      <view class="row section-title">
+        <text class="label">底层（layer0，必填）</text>
+      </view>
+      <view class="row">
+        <text class="label">类型</text>
+        <picker mode="selector" range="{{effectOptions}}" range-key="label"
+          bindchange="onLayer0TypeChange" value="{{layer0Type}}">
+          <view class="picker-text">{{effectOptions[layer0Type].label}}</view>
+        </picker>
+      </view>
+      <view class="row">
+        <text class="label">色相 hue</text>
+        <input class="num-input" type="number" value="{{layer0Hue}}" bindinput="onLayer0HueInput" />
+      </view>
+      <view class="row">
+        <text class="label">饱和度 sat</text>
+        <input class="num-input" type="number" value="{{layer0Sat}}" bindinput="onLayer0SatInput" />
+      </view>
+      <view class="row" wx:if="{{layer0Type !== 0 && layer0Type !== 5}}">
+        <text class="label">周期（ms）</text>
+        <input class="num-input" type="number" value="{{layer0Period}}" bindinput="onLayer0PeriodInput" />
+      </view>
+      <view class="row">
+        <text class="label">层亮度 level</text>
+        <input class="num-input" type="number" value="{{layer0Level}}" bindinput="onLayer0LevelInput" />
+      </view>
+
+      <!-- 层1 -->
+      <view class="row section-title">
+        <text class="label">叠加层（layer1，可空）</text>
+      </view>
+      <view class="row">
+        <text class="label">类型</text>
+        <picker mode="selector" range="{{effectOptions}}" range-key="label"
+          bindchange="onLayer1TypeChange" value="{{layer1Type}}">
+          <view class="picker-text">{{effectOptions[layer1Type].label}}</view>
+        </picker>
+      </view>
+      <block wx:if="{{layer1Type !== 8}}">
+        <view class="row">
+          <text class="label">色相 hue</text>
+          <input class="num-input" type="number" value="{{layer1Hue}}" bindinput="onLayer1HueInput" />
+        </view>
+        <view class="row">
+          <text class="label">饱和度 sat</text>
+          <input class="num-input" type="number" value="{{layer1Sat}}" bindinput="onLayer1SatInput" />
+        </view>
+        <view class="row">
+          <text class="label">周期（ms）</text>
+          <input class="num-input" type="number" value="{{layer1Period}}" bindinput="onLayer1PeriodInput" />
+        </view>
+        <view class="row">
+          <text class="label">层亮度 level</text>
+          <input class="num-input" type="number" value="{{layer1Level}}" bindinput="onLayer1LevelInput" />
+        </view>
+      </block>
+      <view class="hint">底层必填；叠加层为空时覆盖底层，非空时按亮度叠加</view>
+
+      <!-- 保存 -->
+      <view class="row">
+        <view class="button" bindtap="onSaveStep">保存此步骤</view>
+      </view>
+    </view>
+
+    <view wx:if="{{hint}}" class="card">
+      <view class="hint">{{hint}}</view>
+    </view>
+  </block>
 </view>

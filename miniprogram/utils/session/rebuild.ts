@@ -38,7 +38,7 @@ export interface RebuildResult {
  * 发送一条命令并等待多帧报告收尾（LayoutListEnd / SceneListEnd）。
  * 返回收尾帧之前的所有帧（不含 ACK）。
  */
-async function queryMultiFrame(
+export async function queryMultiFrame(
   transport: Transport,
   cmd: number,
   payload: Uint8Array,
