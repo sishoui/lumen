@@ -249,6 +249,59 @@ export function getStepsForPart(
   ).sort((a, b) => a.stepIndex - b.stepIndex);
 }
 
+/** 需要重写步骤的写计划：stepCount 与完整的 0..N−1 步骤列表。 */
+export interface TimelineStepsPlan {
+  kind: "steps";
+  stepCount: number;
+  steps: SceneStep[];
+}
+
+/** 只改循环模式的写计划：不产生任何步骤重写。 */
+export interface TimelineLoopPlan {
+  kind: "loop";
+  stepCount: number;
+  loop: number;
+}
+
+export type TimelinePlan = TimelineStepsPlan | TimelineLoopPlan;
+
+/** 读回列表重排为连续的 0..N−1，步骤内容原样保留。 */
+function reindexSteps(steps: readonly SceneStep[]): SceneStep[] {
+  return steps.map((step, index) => ({ ...step, stepIndex: index }));
+}
+
+/**
+ * 添加步骤的写计划：已有步骤原样保留并补到末尾，新步索引为 N。
+ * 固件在 step_count 变化时清空全部步骤，所以调用方必须重写整份列表。
+ */
+export function planAddStep(
+  currentSteps: readonly SceneStep[],
+  newStep: SceneStep,
+): TimelineStepsPlan {
+  if (currentSteps.length >= MAX_STEPS) {
+    throw new RangeError(`步数已达上限 ${MAX_STEPS}，不能继续添加`);
+  }
+  const steps = reindexSteps(currentSteps);
+  steps.push({ ...newStep, stepIndex: steps.length });
+  return { kind: "steps", stepCount: steps.length, steps };
+}
+
+/** 删除末步的写计划：剩余步骤原样保留并重排索引。 */
+export function planDeleteLastStep(currentSteps: readonly SceneStep[]): TimelineStepsPlan {
+  if (currentSteps.length === 0) {
+    throw new RangeError("没有可删除的步骤");
+  }
+  const steps = reindexSteps(currentSteps.slice(0, -1));
+  return { kind: "steps", stepCount: steps.length, steps };
+}
+
+/** 循环切换计划：只改 loop，步骤列表不参与写入。 */
+export function planLoopChange(currentSteps: readonly SceneStep[], loop: number): TimelineLoopPlan {
+  const err = validateLoop(loop);
+  if (err) throw new RangeError(err);
+  return { kind: "loop", stepCount: currentSteps.length, loop };
+}
+
 /**
  * 从场景读回中取某部位的 ScenePartReport 头。
  */

@@ -188,6 +188,16 @@
       "covers": "场景编辑器（时间轴）：步骤时长校验、循环模式校验、ScenePart+SceneStep 往返、场景名读写、ActivateScene、越界 stepIndex 拒绝；灯效 picker 的 index→协议 type 映射、底层不含空层、字段可见性、类型切换归一化、空层保存读回、周期边界",
       "ticket": "#时间轴"
     },
+    "miniprogram/tests/scene-timeline.test.ts": {
+      "layer": "mp",
+      "covers": "时间轴写计划（#22）：加/删步计划保留已有步骤时长与两层灯效、循环计划不携带步骤；MockTransport 往返读回 [3000,1000] / 删除后 [3000] / 切循环步骤不变；第 2 步写入失败后停止写入并从设备重读、提示含失败步骤与结果码；MAX_STEPS 上限拦截；开始前读回失败中止",
+      "ticket": "#22"
+    },
+    "scripts/user-flows/issue-22.mjs": {
+      "layer": "ui",
+      "covers": "工单 #22 用户流程：演示模式重置后 1 步 3000ms 保存 → 加第 2 步读回 [3000,1000] 且新步自动选中 → 保存后仍在第 2 步 → 删除末步读回 [3000] → 切换循环步骤不变 → 返回再进入读回一致；缺自动化端口时 SKIP",
+      "ticket": "#22"
+    },
     "miniprogram/tests/mock-parity.test.ts": {
       "layer": "mp",
       "covers": "Mock 与固件同形（#19）：LayoutPart/LayoutSeg 拒绝越界 part_id、ScenePart/SceneStep 只按 MAX_PARTS 拒绝、QueryScene 报告 step_count 内全部步骤（含清零步骤）、非法层参数返回 InvalidParam、DeviceInfoReport v1.0、帧日志 TX→RX 且带 commandName",

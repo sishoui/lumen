@@ -10,10 +10,11 @@ import {
   createEmptyStep, createStaticLayer,
 } from "../../utils/scene-editor";
 import type { LayerPickerOption, LayerFieldVisibility } from "../../utils/scene-editor";
-import { LOOP, EFFECT_TYPE, NO_EFFECT, MAX_STEPS, resultName } from "../../utils/protocol/constants";
+import { runTimelineWrite, editFailureText } from "../../utils/scene-writer";
+import type { TimelineOperation, TimelineWriteOutcome } from "../../utils/scene-writer";
+import { LOOP, EFFECT_TYPE, NO_EFFECT } from "../../utils/protocol/constants";
 import { EMPTY_EFFECT } from "../../utils/protocol/types";
-import type { SceneStep, EffectLayer } from "../../utils/protocol/types";
-import type { EditResult } from "../../utils/session/session";
+import type { SceneStep, EffectLayer, SceneReport } from "../../utils/protocol/types";
 
 const LAYER0_OPTIONS = layerPickerOptions(false);
 const LAYER1_OPTIONS = layerPickerOptions(true);
@@ -24,15 +25,13 @@ const LOOP_OPTIONS = [
   { value: LOOP.LAST, label: "末步循环" },
 ];
 
-/** 把设备/编码失败翻译成用户能判断「改参数还是重试」的文案。 */
-function editFailureText(result: EditResult): string {
-  if (result.kind === "ack-error") {
-    return `结果码 ${result.ack.resultCode}（${resultName(result.ack.resultCode)}）`;
-  }
-  if (result.kind === "error") return result.message;
-  if (result.kind === "storage") return `本地存储失败：${result.message}`;
-  if (result.kind === "stale") return "连接已切换，请重试";
-  return "未知原因";
+interface ScenePartRow {
+  stripId: number;
+  partId: number;
+  name: string;
+  stepCount: number;
+  loop: number;
+  on: boolean;
 }
 
 interface ScenePageData {
@@ -61,7 +60,7 @@ Page({
     sceneId: 0,
     sceneName: "",
     /** 部位列表（来自布局） */
-    parts: [] as Array<{ stripId: number; partId: number; name: string; stepCount: number; loop: number; on: boolean }>,
+    parts: [] as ScenePartRow[],
     /** 当前编辑的部位 */
     activeKey: "" as string,
     /** 当前部位的步骤列表 */
@@ -154,11 +153,8 @@ Page({
     this.loadSteps();
   },
 
-  async loadSteps() {
-    const session = getSession();
-    const sceneRes = await session.queryScene(this.data.sceneId);
-    const scene = sceneRes.kind === "ok" ? sceneRes.scene : session.scene;
-    if (!scene) return;
+  /** 用设备读回刷新编辑区；preferredIndex 超出范围时夹到有效下标。 */
+  applySceneReadback(scene: SceneReport, preferredIndex: number) {
     const [stripId, partId] = this.data.activeKey.split(":").map(Number);
     const steps = getStepsForPart(scene, stripId, partId);
     const head = getPartHead(scene, stripId, partId);
@@ -168,19 +164,41 @@ Page({
       layer1Label: formatLayer(s.layer1),
       durationLabel: formatDuration(s.durationMs),
     }));
-    const totalMs = totalDuration(steps);
+    const index = Math.max(0, Math.min(preferredIndex, decorated.length - 1));
+    const parts = this.data.parts.map((part: ScenePartRow) => {
+      const partHead = getPartHead(scene, part.stripId, part.partId);
+      return {
+        ...part,
+        stepCount: partHead?.stepCount ?? 0,
+        loop: partHead?.loop ?? part.loop,
+        on: partHead?.on ?? part.on,
+      };
+    });
     this.setData({
       steps: decorated,
-      loop: head?.loop ?? LOOP.ALL,
-      totalMs,
+      totalMs: totalDuration(steps),
+      parts,
+      loop: head?.loop ?? this.data.loop,
+      activeStepIndex: index,
     });
-    // 加载第一步到编辑器
     if (decorated.length > 0) {
-      this.loadStepIntoEditor(decorated[0]);
-      this.setData({ activeStepIndex: 0 });
+      this.loadStepIntoEditor(decorated[index]);
     } else {
       this.loadStepIntoEditor(null);
     }
+  },
+
+  /** 从设备重新读回时间轴；默认保持当前编辑步。 */
+  async loadSteps(preferredIndex?: number): Promise<boolean> {
+    const result = await getSession().queryScene(this.data.sceneId);
+    if (result.kind !== "ok") {
+      const reason = result.kind === "error" ? result.message : "连接已切换";
+      this.setData({ hint: `读取场景失败：${reason}`, loading: false });
+      return false;
+    }
+    this.applySceneReadback(result.scene, preferredIndex ?? this.data.activeStepIndex);
+    this.setData({ loading: false });
+    return true;
   },
 
   loadStepIntoEditor(step: SceneStep | null) {
@@ -234,11 +252,11 @@ Page({
     };
   },
 
-  /** 切换部位。 */
+  /** 切换部位：按决策 5 选中第 1 步。 */
   onPartTap(e: any) {
     const key = `${e.currentTarget.dataset.strip}:${e.currentTarget.dataset.part}`;
     this.setData({ activeKey: key });
-    this.loadSteps();
+    void this.loadSteps(0);
   },
 
   /** 切换步骤。 */
@@ -250,82 +268,45 @@ Page({
     this.loadStepIntoEditor(steps[index]);
   },
 
-  /** 添加步骤。 */
-  onAddStep() {
+  /** 执行一次写计划并刷新页面；选中策略由调用方给出。 */
+  async runTimeline(
+    op: TimelineOperation,
+    preferredIndex: (outcome: TimelineWriteOutcome) => number,
+  ): Promise<void> {
     const [stripId, partId] = this.data.activeKey.split(":").map(Number);
-    const session = getSession();
-    const scene = session.scene;
-    const currentCount = this.data.steps.length;
-    if (currentCount >= MAX_STEPS) {
-      this.setData({ hint: `步数已达上限 ${MAX_STEPS}` });
-      return;
+    const outcome = await runTimelineWrite(getSession(), this.data.sceneId, stripId, partId, op);
+    if (outcome.scene) {
+      this.applySceneReadback(outcome.scene, preferredIndex(outcome));
     }
-    const stepIndex = currentCount;
-    // 先更新 ScenePart 头（stepCount + 1）
-    void session.scenePart(this.data.sceneId, stripId, partId, {
-      stepCount: stepIndex + 1,
-      loop: this.data.loop,
-      on: true,
-    }).then((r) => {
-      if (r.kind !== "ok") {
-        this.setData({ hint: `更新步数失败：${editFailureText(r)}` });
-        return;
-      }
-      // 写步骤
-      const step: SceneStep = createEmptyStep(this.data.sceneId, stripId, partId, stepIndex);
-      step.durationMs = 1000;
-      step.layer0 = createStaticLayer(0, 255, 100);
-      void session.sceneStep(this.data.sceneId, stripId, partId, stepIndex, step).then((sr) => {
-        if (sr.kind === "ok") {
-          this.setData({ hint: `已添加步骤 ${stepIndex + 1}` });
-          this.loadSteps();
-        } else {
-          this.setData({ hint: `写步骤失败：${editFailureText(sr)}` });
-        }
-      });
-    });
+    this.setData({ hint: outcome.message });
   },
 
-  /** 删除最后一步。 */
-  onDeleteLastStep() {
+  /** 添加步骤：新步默认 1000ms，完成后选中新的最后一步。 */
+  async onAddStep(): Promise<void> {
     const [stripId, partId] = this.data.activeKey.split(":").map(Number);
-    const session = getSession();
-    const currentCount = this.data.steps.length;
-    if (currentCount === 0) {
-      this.setData({ hint: "没有可删除的步骤" });
-      return;
-    }
-    const newCount = currentCount - 1;
-    void session.scenePart(this.data.sceneId, stripId, partId, {
-      stepCount: newCount,
-      loop: this.data.loop,
-      on: true,
-    }).then((r) => {
-      if (r.kind === "ok") {
-        this.setData({ hint: `已删除步骤 ${currentCount}` });
-        this.loadSteps();
-      } else {
-        this.setData({ hint: `删除失败：${editFailureText(r)}` });
-      }
-    });
+    const newStep = createEmptyStep(this.data.sceneId, stripId, partId, 0);
+    newStep.durationMs = 1000;
+    newStep.layer0 = createStaticLayer(0, 255, 100);
+    await this.runTimeline(
+      { kind: "add", newStep },
+      (outcome: TimelineWriteOutcome) => outcome.failedStepIndex ?? outcome.steps.length - 1,
+    );
   },
 
-  /** 循环模式切换。 */
-  onLoopChange(e: any) {
-    const loop = e.detail.value as number;
-    const [stripId, partId] = this.data.activeKey.split(":").map(Number);
-    const session = getSession();
-    void session.scenePart(this.data.sceneId, stripId, partId, {
-      stepCount: this.data.steps.length,
-      loop,
-      on: true,
-    }).then((r) => {
-      if (r.kind === "ok") {
-        this.setData({ loop, hint: "循环模式已更新" });
-      } else {
-        this.setData({ hint: `更新失败：${editFailureText(r)}` });
-      }
-    });
+  /** 删除最后一步：选中 min(当前步, 新步数−1)。 */
+  async onDeleteLastStep(): Promise<void> {
+    await this.runTimeline(
+      { kind: "deleteLast" },
+      (outcome: TimelineWriteOutcome) => Math.min(this.data.activeStepIndex, outcome.steps.length - 1),
+    );
+  },
+
+  /** 循环模式切换：只改 loop，不重写任何步骤。 */
+  async onLoopChange(e: any): Promise<void> {
+    await this.runTimeline(
+      { kind: "loop", loop: e.detail.value as number },
+      () => this.data.activeStepIndex,
+    );
   },
 
   /** 时长输入。 */
@@ -334,8 +315,8 @@ Page({
     this.setData({ durationMs: Number.isFinite(ms) ? ms : 0 });
   },
 
-  /** 保存当前步骤。 */
-  onSaveStep() {
+  /** 保存当前步骤：成功后按读回刷新，并保持当前编辑步。 */
+  async onSaveStep(): Promise<void> {
     const [stripId, partId] = this.data.activeKey.split(":").map(Number);
     const session = getSession();
     const stepIndex = this.data.activeStepIndex;
@@ -356,15 +337,18 @@ Page({
       layer0,
       layer1,
     };
-    void session.sceneStep(this.data.sceneId, stripId, partId, stepIndex, step).then((r) => {
-      if (r.kind === "ok") {
-        this.applyLayerEdit(0, layer0);
-        this.applyLayerEdit(1, layer1);
-        this.setData({ hint: `步骤 ${stepIndex + 1} 已保存` });
-        this.loadSteps();
-      } else {
-        this.setData({ hint: `保存失败：${editFailureText(r)}` });
-      }
+    const result = await session.sceneStep(this.data.sceneId, stripId, partId, stepIndex, step);
+    if (result.kind !== "ok") {
+      this.setData({ hint: `保存失败：${editFailureText(result)}` });
+      return;
+    }
+    this.applyLayerEdit(0, layer0);
+    this.applyLayerEdit(1, layer1);
+    const readbackOk = await this.loadSteps(this.data.activeStepIndex);
+    this.setData({
+      hint: readbackOk
+        ? `步骤 ${stepIndex + 1} 已保存`
+        : `步骤 ${stepIndex + 1} 已保存，但读回失败，请重连查看设备实际状态`,
     });
   },
 
