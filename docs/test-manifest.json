@@ -175,7 +175,7 @@
     },
     "miniprogram/tests/scene-editor.test.ts": {
       "layer": "mp",
-      "covers": "场景编辑器（时间轴）：步骤时长校验、循环模式校验、ScenePart+SceneStep 往返、场景名读写、ActivateScene、越界 stepIndex 拒绝",
+      "covers": "场景编辑器（时间轴）：步骤时长校验、循环模式校验、ScenePart+SceneStep 往返、场景名读写、ActivateScene、越界 stepIndex 拒绝；灯效 picker 的 index→协议 type 映射、底层不含空层、字段可见性、类型切换归一化、空层保存读回、周期边界",
       "ticket": "#时间轴"
     },
     "miniprogram/tests/mock-parity.test.ts": {
@@ -192,6 +192,11 @@
       "layer": "ui",
       "covers": "L4 演示模式与固件同形（#19）：控制页版本 v1.0、帧日志快照非空、每条有 commandName、同一 seq 的 TX 先于 RX",
       "ticket": "#19"
+    },
+    "scripts/user-flows/issue-27.mjs": {
+      "layer": "ui",
+      "covers": "灯效类型映射与字段显隐（#27）：底层选项无空层、叠加层含空层、心跳/静态/熄灭字段显隐、空层→呼吸默认亮度 50、呼吸保存后清回空层并重进读回 0xFF",
+      "ticket": "#27"
     }
   }
 }

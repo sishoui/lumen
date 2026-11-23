@@ -146,6 +146,24 @@ export const RESULT = {
   INTERNAL_ERROR: 0x09,
 } as const;
 
+/** 结果码中文名（docs/protocol.md §6；页面提示与日志共用）。 */
+export const RESULT_NAMES: Record<number, string> = {
+  [RESULT.OK]: "成功",
+  [RESULT.INVALID_PARAM]: "参数无效",
+  [RESULT.UNKNOWN_COMMAND]: "未知命令",
+  [RESULT.BAD_CHECKSUM]: "校验和错误",
+  [RESULT.BAD_LENGTH]: "长度错误",
+  [RESULT.BUSY]: "设备忙",
+  [RESULT.STORAGE_FAILED]: "存储失败",
+  [RESULT.UNSUPPORTED_VERSION]: "版本不支持",
+  [RESULT.BAD_MAGIC]: "帧头错误",
+  [RESULT.INTERNAL_ERROR]: "内部错误",
+};
+
+export function resultName(code: number): string {
+  return RESULT_NAMES[code] ?? `未知结果码 0x${code.toString(16).padStart(2, "0").toUpperCase()}`;
+}
+
 /** 异步事件码（docs/protocol.md §8.1）。 */
 export const EVENT = {
   STORAGE_FAILED: 0x01,
@@ -178,6 +196,29 @@ export const KNOWN_EFFECT_TYPES: readonly number[] = [
 
 export function isKnownEffectType(type: number): boolean {
   return KNOWN_EFFECT_TYPES.includes(type);
+}
+
+/**
+ * 各灯效类型的周期合法区间（docs/protocol.md §9）。
+ * period = 0 表示「使用设备默认」，任何类型的 0 都合法。
+ * COMET 沿用彩虹下限：固件 effects.c 的 COMET 分支用的就是
+ * LUMEN_RAINBOW_MIN_PERIOD_MS。
+ */
+export const EFFECT_PERIOD_BOUNDS: Record<number, { min: number; max: number }> = {
+  [EFFECT_TYPE.BREATHING]: { min: 334, max: 0xffff },
+  [EFFECT_TYPE.RAINBOW]: { min: 200, max: 0xffff },
+  [EFFECT_TYPE.COMET]: { min: 200, max: 0xffff },
+  [EFFECT_TYPE.STROBE]: { min: 100, max: 0xffff },
+  [EFFECT_TYPE.HEARTBEAT]: { min: 500, max: 1500 },
+  [EFFECT_TYPE.FLICKER]: { min: 334, max: 0xffff },
+};
+
+/** 该类型是否使用周期，且给定时长是否落在协议允许区间。 */
+export function isValidEffectPeriod(type: number, periodMs: number): boolean {
+  if (periodMs === 0) return true;
+  const bounds = EFFECT_PERIOD_BOUNDS[type];
+  if (!bounds) return false;
+  return periodMs >= bounds.min && periodMs <= bounds.max;
 }
 
 /** 循环三值（docs/protocol.md §8.4）。 */

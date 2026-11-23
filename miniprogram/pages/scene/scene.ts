@@ -2,33 +2,59 @@
 
 import { getSession } from "../../utils/session/singleton";
 import {
-  EFFECT_NAMES, LOOP_NAMES, PHASE_NAMES,
-  formatDuration, formatLayer,
-  validateDuration, validateLoop, validateStepCount,
-  getStepsForPart, getPartHead, maxStepCount, totalDuration,
+  formatDuration, formatLayer, effectLabel,
+  layerPickerOptions, pickerIndexToType, pickerIndexForType, layerFieldVisibility,
+  normalizeLayer, switchEffectType,
+  validateDuration,
+  getStepsForPart, getPartHead, totalDuration,
   createEmptyStep, createStaticLayer,
-  isLayerEmpty,
 } from "../../utils/scene-editor";
-import { LOOP, EFFECT_TYPE, NO_EFFECT, MAX_STEPS, MAX_SCENES } from "../../utils/protocol/constants";
+import type { LayerPickerOption, LayerFieldVisibility } from "../../utils/scene-editor";
+import { LOOP, EFFECT_TYPE, NO_EFFECT, MAX_STEPS, resultName } from "../../utils/protocol/constants";
+import { EMPTY_EFFECT } from "../../utils/protocol/types";
 import type { SceneStep, EffectLayer } from "../../utils/protocol/types";
+import type { EditResult } from "../../utils/session/session";
 
-const EFFECT_OPTIONS = [
-  { value: EFFECT_TYPE.STATIC, label: "静态" },
-  { value: EFFECT_TYPE.BREATHING, label: "呼吸" },
-  { value: EFFECT_TYPE.RAINBOW, label: "彩虹" },
-  { value: EFFECT_TYPE.COMET, label: "流光" },
-  { value: EFFECT_TYPE.STROBE, label: "爆闪" },
-  { value: EFFECT_TYPE.HEARTBEAT, label: "心跳" },
-  { value: EFFECT_TYPE.OFF, label: "熄灭" },
-  { value: EFFECT_TYPE.FLICKER, label: "随机" },
-  { value: NO_EFFECT, label: "空层" },
-];
+const LAYER0_OPTIONS = layerPickerOptions(false);
+const LAYER1_OPTIONS = layerPickerOptions(true);
 
 const LOOP_OPTIONS = [
   { value: LOOP.NONE, label: "不循环" },
   { value: LOOP.ALL, label: "全部循环" },
   { value: LOOP.LAST, label: "末步循环" },
 ];
+
+/** 把设备/编码失败翻译成用户能判断「改参数还是重试」的文案。 */
+function editFailureText(result: EditResult): string {
+  if (result.kind === "ack-error") {
+    return `结果码 ${result.ack.resultCode}（${resultName(result.ack.resultCode)}）`;
+  }
+  if (result.kind === "error") return result.message;
+  if (result.kind === "storage") return `本地存储失败：${result.message}`;
+  if (result.kind === "stale") return "连接已切换，请重试";
+  return "未知原因";
+}
+
+interface ScenePageData {
+  layer0Type: number;
+  layer0Hue: number;
+  layer0Sat: number;
+  layer0Period: number;
+  layer0Level: number;
+  layer1Type: number;
+  layer1Hue: number;
+  layer1Sat: number;
+  layer1Period: number;
+  layer1Level: number;
+  layer0Options: LayerPickerOption[];
+  layer1Options: LayerPickerOption[];
+  layer0Fields: LayerFieldVisibility;
+  layer1Fields: LayerFieldVisibility;
+  layer0PickerIndex: number;
+  layer1PickerIndex: number;
+  layer0Label: string;
+  layer1Label: string;
+}
 
 Page({
   data: {
@@ -60,8 +86,17 @@ Page({
     layer1Sat: 0,
     layer1Period: 0,
     layer1Level: 0,
-    /** 效果选项 */
-    effectOptions: EFFECT_OPTIONS,
+    /** 每层各自的 picker 选项（value 是协议 type），底层不含空层 */
+    layer0Options: LAYER0_OPTIONS,
+    layer1Options: LAYER1_OPTIONS,
+    /** 每层字段可见性（wxml 条件渲染与 L4 断言共用） */
+    layer0Fields: layerFieldVisibility(EFFECT_TYPE.STATIC),
+    layer1Fields: layerFieldVisibility(NO_EFFECT),
+    /** picker 的 value 是索引，type → 索引在这里换算 */
+    layer0PickerIndex: pickerIndexForType(LAYER0_OPTIONS, EFFECT_TYPE.STATIC),
+    layer1PickerIndex: pickerIndexForType(LAYER1_OPTIONS, NO_EFFECT),
+    layer0Label: effectLabel(EFFECT_TYPE.STATIC),
+    layer1Label: effectLabel(NO_EFFECT),
     loopOptions: LOOP_OPTIONS,
     /** 消息 */
     hint: "",
@@ -149,29 +184,54 @@ Page({
   },
 
   loadStepIntoEditor(step: SceneStep | null) {
-    if (!step) {
+    const l0 = step
+      ? (step.layer0.type === NO_EFFECT
+          ? switchEffectType(step.layer0, EFFECT_TYPE.STATIC, false)
+          : normalizeLayer(step.layer0))
+      : createStaticLayer(0, 255, 100);
+    const l1 = step ? normalizeLayer(step.layer1) : { ...EMPTY_EFFECT };
+    this.setData({ editingStep: step, durationMs: step ? step.durationMs : 1000 });
+    this.applyLayerEdit(0, l0);
+    this.applyLayerEdit(1, l1);
+  },
+
+  /** 把一层写回编辑区：值、picker 索引、标签、可见性一次到位。 */
+  applyLayerEdit(which: 0 | 1, layer: EffectLayer) {
+    const options = which === 0 ? LAYER0_OPTIONS : LAYER1_OPTIONS;
+    const visible = layerFieldVisibility(layer.type);
+    const pickerIndex = pickerIndexForType(options, layer.type);
+    const label = effectLabel(layer.type);
+    if (which === 0) {
       this.setData({
-        editingStep: null,
-        durationMs: 1000,
-        layer0Type: EFFECT_TYPE.STATIC,
-        layer0Hue: 0, layer0Sat: 255, layer0Period: 2000, layer0Level: 100,
-        layer1Type: NO_EFFECT,
-        layer1Hue: 0, layer1Sat: 0, layer1Period: 0, layer1Level: 0,
+        layer0Type: layer.type,
+        layer0Hue: layer.hue, layer0Sat: layer.sat,
+        layer0Period: layer.periodMs, layer0Level: layer.level,
+        layer0Fields: visible, layer0PickerIndex: pickerIndex, layer0Label: label,
       });
       return;
     }
-    const l0 = step.layer0;
-    const l1 = step.layer1;
     this.setData({
-      editingStep: step,
-      durationMs: step.durationMs,
-      layer0Type: l0.type,
-      layer0Hue: l0.hue, layer0Sat: l0.sat,
-      layer0Period: l0.periodMs, layer0Level: l0.level,
-      layer1Type: l1.type,
-      layer1Hue: l1.hue, layer1Sat: l1.sat,
-      layer1Period: l1.periodMs, layer1Level: l1.level,
+      layer1Type: layer.type,
+      layer1Hue: layer.hue, layer1Sat: layer.sat,
+      layer1Period: layer.periodMs, layer1Level: layer.level,
+      layer1Fields: visible, layer1PickerIndex: pickerIndex, layer1Label: label,
     });
+  },
+
+  editorLayer(which: 0 | 1): EffectLayer {
+    const data = this.data as ScenePageData;
+    if (which === 0) {
+      return {
+        type: data.layer0Type,
+        hue: data.layer0Hue, sat: data.layer0Sat,
+        periodMs: data.layer0Period, p5: 0, flags: 0, level: data.layer0Level,
+      };
+    }
+    return {
+      type: data.layer1Type,
+      hue: data.layer1Hue, sat: data.layer1Sat,
+      periodMs: data.layer1Period, p5: 0, flags: 0, level: data.layer1Level,
+    };
   },
 
   /** 切换部位。 */
@@ -208,7 +268,7 @@ Page({
       on: true,
     }).then((r) => {
       if (r.kind !== "ok") {
-        this.setData({ hint: `更新步数失败：${r.kind}` });
+        this.setData({ hint: `更新步数失败：${editFailureText(r)}` });
         return;
       }
       // 写步骤
@@ -220,7 +280,7 @@ Page({
           this.setData({ hint: `已添加步骤 ${stepIndex + 1}` });
           this.loadSteps();
         } else {
-          this.setData({ hint: `写步骤失败：${sr.kind}` });
+          this.setData({ hint: `写步骤失败：${editFailureText(sr)}` });
         }
       });
     });
@@ -245,7 +305,7 @@ Page({
         this.setData({ hint: `已删除步骤 ${currentCount}` });
         this.loadSteps();
       } else {
-        this.setData({ hint: `删除失败：${r.kind}` });
+        this.setData({ hint: `删除失败：${editFailureText(r)}` });
       }
     });
   },
@@ -263,7 +323,7 @@ Page({
       if (r.kind === "ok") {
         this.setData({ loop, hint: "循环模式已更新" });
       } else {
-        this.setData({ hint: `更新失败：${r.kind}` });
+        this.setData({ hint: `更新失败：${editFailureText(r)}` });
       }
     });
   },
@@ -281,39 +341,29 @@ Page({
     const stepIndex = this.data.activeStepIndex;
     const err = validateDuration(this.data.durationMs);
     if (err) { this.setData({ hint: err }); return; }
+    const layer0 = normalizeLayer(this.editorLayer(0));
+    if (layer0.type === NO_EFFECT) {
+      this.setData({ hint: "底层不能是空层" });
+      return;
+    }
+    const layer1 = normalizeLayer(this.editorLayer(1));
     const step: SceneStep = {
       sceneId: this.data.sceneId,
       stripId,
       partId,
       stepIndex,
       durationMs: this.data.durationMs,
-      layer0: {
-        type: this.data.layer0Type,
-        hue: this.data.layer0Hue,
-        sat: this.data.layer0Sat,
-        periodMs: this.data.layer0Period,
-        p5: 0,
-        flags: 0,
-        level: this.data.layer0Level,
-      },
-      layer1: this.data.layer1Type === NO_EFFECT
-        ? { type: NO_EFFECT, hue: 0, sat: 0, periodMs: 0, p5: 0, flags: 0, level: 0 }
-        : {
-            type: this.data.layer1Type,
-            hue: this.data.layer1Hue,
-            sat: this.data.layer1Sat,
-            periodMs: this.data.layer1Period,
-            p5: 0,
-            flags: 0,
-            level: this.data.layer1Level,
-          },
+      layer0,
+      layer1,
     };
     void session.sceneStep(this.data.sceneId, stripId, partId, stepIndex, step).then((r) => {
       if (r.kind === "ok") {
+        this.applyLayerEdit(0, layer0);
+        this.applyLayerEdit(1, layer1);
         this.setData({ hint: `步骤 ${stepIndex + 1} 已保存` });
         this.loadSteps();
       } else {
-        this.setData({ hint: `保存失败：${r.kind}` });
+        this.setData({ hint: `保存失败：${editFailureText(r)}` });
       }
     });
   },
@@ -331,7 +381,7 @@ Page({
       if (r.kind === "ok") {
         this.setData({ hint: "场景名已保存" });
       } else {
-        this.setData({ hint: `保存失败：${r.kind}` });
+        this.setData({ hint: `保存失败：${editFailureText(r)}` });
       }
     });
   },
@@ -343,23 +393,25 @@ Page({
       if (r.kind === "ok") {
         this.setData({ hint: `场景 ${this.data.sceneId + 1} 已激活` });
       } else {
-        this.setData({ hint: `激活失败：${r.kind}` });
+        this.setData({ hint: `激活失败：${editFailureText(r)}` });
       }
     });
   },
 
-  /** 层0 类型切换。 */
+  /** 层0 类型切换：change 只做下标 → 协议 type，再按新类型归一化。 */
   onLayer0TypeChange(e: any) {
-    this.setData({ layer0Type: e.detail.value });
+    const type = pickerIndexToType(LAYER0_OPTIONS, Number(e.detail.value));
+    this.applyLayerEdit(0, switchEffectType(this.editorLayer(0), type, false));
   },
   onLayer0HueInput(e: any) { this.setData({ layer0Hue: parseInt(e.detail.value, 10) || 0 }); },
   onLayer0SatInput(e: any) { this.setData({ layer0Sat: parseInt(e.detail.value, 10) || 0 }); },
   onLayer0PeriodInput(e: any) { this.setData({ layer0Period: parseInt(e.detail.value, 10) || 0 }); },
   onLayer0LevelInput(e: any) { this.setData({ layer0Level: parseInt(e.detail.value, 10) || 0 }); },
 
-  /** 层1 类型切换。 */
+  /** 层1 类型切换：从空层切到真实效果时补默认亮度 50。 */
   onLayer1TypeChange(e: any) {
-    this.setData({ layer1Type: e.detail.value });
+    const type = pickerIndexToType(LAYER1_OPTIONS, Number(e.detail.value));
+    this.applyLayerEdit(1, switchEffectType(this.editorLayer(1), type, true));
   },
   onLayer1HueInput(e: any) { this.setData({ layer1Hue: parseInt(e.detail.value, 10) || 0 }); },
   onLayer1SatInput(e: any) { this.setData({ layer1Sat: parseInt(e.detail.value, 10) || 0 }); },
