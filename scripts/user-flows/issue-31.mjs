@@ -78,11 +78,13 @@ async function main() {
   await sleep(800);
   rec("C0 真实模式", (await dataGet("mockMode")) === false, `mockMode=${await dataGet("mockMode")}`);
 
-  // 在页面上下文 mock wx.openBluetoothAdapter 返回失败
+  // 在页面上下文 mock wx.openBluetoothAdapter 返回失败；先保存原方法到
+  // wx.__issue31Orig，脚本结束时（含异常路径）在 finally 里统一恢复，
+  // 否则后续脚本（issue-30/issue-33 等）会继承这个 mock。
   const mockResult = await mp.evaluate(() => {
     try {
-      // 保存原始
-      const orig = wx.openBluetoothAdapter;
+      wx.__issue31Orig = wx.__issue31Orig || {};
+      wx.__issue31Orig.openBluetoothAdapter = wx.__issue31Orig.openBluetoothAdapter || wx.openBluetoothAdapter;
       wx.openBluetoothAdapter = (opts) => {
         if (opts && typeof opts.fail === "function") {
           opts.fail({ errCode: 10001, errMsg: "bluetooth not available" });
@@ -129,12 +131,21 @@ async function main() {
   await sleep(800);
   rec("D0 真实模式", (await dataGet("mockMode")) === false, `mockMode=${await dataGet("mockMode")}`);
 
-  // mock wx.openBluetoothAdapter 成功 + createBLEConnection 失败
+  // mock wx.openBluetoothAdapter 成功 + createBLEConnection 失败；原方法保存到
+  // wx.__issue31Orig，finally 统一恢复（含 getBluetoothAdapterState）。
   const mockConn = await mp.evaluate(() => {
     try {
+      wx.__issue31Orig = wx.__issue31Orig || {};
+      wx.__issue31Orig.openBluetoothAdapter = wx.__issue31Orig.openBluetoothAdapter || wx.openBluetoothAdapter;
+      wx.__issue31Orig.createBLEConnection = wx.__issue31Orig.createBLEConnection || wx.createBLEConnection;
+      wx.__issue31Orig.getBluetoothAdapterState = wx.__issue31Orig.getBluetoothAdapterState || wx.getBluetoothAdapterState;
       wx.openBluetoothAdapter = (opts) => {
         if (opts && typeof opts.success === "function") opts.success();
         return Promise.resolve();
+      };
+      wx.getBluetoothAdapterState = (opts) => {
+        if (opts && typeof opts.success === "function") opts.success({ available: true, discovering: false });
+        return Promise.resolve({ available: true, discovering: false });
       };
       wx.createBLEConnection = (opts) => {
         if (opts && typeof opts.fail === "function") {
@@ -167,9 +178,19 @@ async function main() {
   const connStatus = await dataGet("statusText");
   if (typeof connStatus === "string" && connStatus.includes("连接失败")) {
     rec("D3 statusText 含「连接失败」", true, `statusText=${connStatus}`);
+    // 新映射文案（#31）：适配器未初始化 →「蓝牙未初始化，请先打开蓝牙」；
+    // errCode 10003 →「占用或不在范围」；其余透传 errMsg。SDK 原文
+    // （getBluetoothAdapterState 等）不允许出现在用户文案里。
     rec(
       "D4 statusText 含可读原因",
-      connStatus.includes("占用") || connStatus.includes("connect fail"),
+      connStatus.includes("蓝牙")
+        ? /初始化|就绪|打开/.test(connStatus)
+        : connStatus.includes("占用") || connStatus.includes("connect fail"),
+      `statusText=${connStatus}`,
+    );
+    rec(
+      "D4b statusText 不含 SDK 原文",
+      !connStatus.includes("getBluetoothAdapterState"),
       `statusText=${connStatus}`,
     );
   } else {
@@ -191,6 +212,36 @@ try {
 } catch (error) {
   rec(`EXCEPTION ${String(error?.message ?? error)}`, false);
 } finally {
+  // 无论 main() 成功/抛异常，都恢复被替换的 wx 方法并清掉注入的假设备，
+  // 防止后续脚本（issue-30 / issue-33 等）继承 mock 导致隔离性失败。
+  try {
+    const restored = await mp.evaluate(() => {
+      try {
+        const page = getCurrentPages().pop();
+        if (page) page.setData({ devices: [] });
+        const orig = wx.__issue31Orig;
+        if (orig) {
+          for (const k of ["openBluetoothAdapter", "createBLEConnection", "getBluetoothAdapterState"]) {
+            if (orig[k] !== undefined) wx[k] = orig[k];
+          }
+          delete wx.__issue31Orig;
+        }
+        return {
+          ok: wx.__issue31Orig === undefined,
+          sameAdapter: wx.openBluetoothAdapter === orig?.openBluetoothAdapter,
+        };
+      } catch (e) {
+        return { ok: false, error: String(e?.message ?? e) };
+      }
+    });
+    rec(
+      "E0 收尾恢复 wx 方法（openBluetoothAdapter 已还原）",
+      restored?.ok === true && restored?.sameAdapter === true,
+      JSON.stringify(restored),
+    );
+  } catch (e) {
+    rec(`E0 收尾恢复失败 ${String(e?.message ?? e)}`, false);
+  }
   recorder.printSummary();
   await mp.disconnect().catch(() => {});
   process.exit(recorder.fail === 0 ? 0 : 1);
