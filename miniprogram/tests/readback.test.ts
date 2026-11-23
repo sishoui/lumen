@@ -6,10 +6,10 @@ import { ControlSession } from "../utils/session/session";
 import { rebuildFromDevice } from "../utils/session/rebuild";
 import { createMemoryStorage } from "./helpers/storage";
 import { MOCK_DEVICES } from "../utils/mock/mock-devices";
-import { ScriptedTransport, ackFrame, idleState, type SentRequest } from "./helpers/scripted-transport";
+import { ScriptedTransport, ackFrame, idleState, makeRebuildResponder } from "./helpers/scripted-transport";
 import { encodeFrame } from "../utils/protocol/frame";
 import { cmdSceneName, cmdSceneStep, staticLayer } from "../utils/protocol/commands";
-import { CMD, DEVICE_CMD } from "../utils/protocol/constants";
+import { DEVICE_CMD } from "../utils/protocol/constants";
 
 function sceneStepReport(seq: number, durationMs: number): Uint8Array {
   const payload = cmdSceneStep({
@@ -26,32 +26,6 @@ function sceneStepReport(seq: number, durationMs: number): Uint8Array {
 
 function sceneTail(seq: number, name: string): Uint8Array {
   return encodeFrame(DEVICE_CMD.SCENE_LIST_END, seq, cmdSceneName(0, name).payload);
-}
-
-/** 重建的固定回复；第 2 次 QueryScene 交给页面查询的脚本。 */
-function rebuildResponder(pageQuery: (request: SentRequest, emit: (f: Uint8Array) => void) => void) {
-  let sceneQueries = 0;
-  return (request: SentRequest, emit: (f: Uint8Array) => void) => {
-    if (request.command === CMD.QUERY_STRIP_CONFIG) {
-      emit(ackFrame(request));
-      emit(encodeFrame(DEVICE_CMD.STRIP_CONFIG_REPORT, request.seq, new Uint8Array(24)));
-      return;
-    }
-    if (request.command === CMD.QUERY_DEVICE_INFO) {
-      emit(ackFrame(request));
-      emit(encodeFrame(DEVICE_CMD.DEVICE_INFO_REPORT, request.seq, new Uint8Array(15)));
-      return;
-    }
-    if (request.command === CMD.QUERY_SCENE) {
-      sceneQueries += 1;
-      if (sceneQueries === 1) {
-        emit(ackFrame(request));
-        emit(sceneTail(request.seq, "重建场景"));
-        return;
-      }
-      pageQuery(request, emit);
-    }
-  };
 }
 
 describe("多帧读回", () => {
@@ -111,7 +85,7 @@ describe("多帧读回", () => {
     vi.useFakeTimers();
     const transport = new ScriptedTransport(
       idleState(),
-      rebuildResponder((request, emit) => {
+      makeRebuildResponder((request, emit) => {
         emit(ackFrame(request));
       }),
     );
@@ -119,7 +93,7 @@ describe("多帧读回", () => {
     await session.connect("scripted");
 
     const pending = session.queryScene(0);
-    await vi.advanceTimersByTimeAsync(600);
+    await vi.advanceTimersByTimeAsync(5000);
     const result = await pending;
 
     expect(result.kind, "没有 SceneListEnd 时不能返回成功").toBe("error");
@@ -133,7 +107,7 @@ describe("多帧读回", () => {
     vi.useFakeTimers();
     const transport = new ScriptedTransport(
       idleState(),
-      rebuildResponder((request, emit) => {
+      makeRebuildResponder((request, emit) => {
         emit(ackFrame(request));
         emit(sceneStepReport(request.seq, 1500));
         emit(sceneTail((request.seq + 1) & 0xff, "别的请求"));
@@ -143,7 +117,7 @@ describe("多帧读回", () => {
     await session.connect("scripted");
 
     const pending = session.queryScene(0);
-    await vi.advanceTimersByTimeAsync(600);
+    await vi.advanceTimersByTimeAsync(5000);
     const result = await pending;
 
     expect(result.kind, "seq 不匹配的收尾帧不能结束查询").toBe("error");
@@ -155,7 +129,7 @@ describe("多帧读回", () => {
   it("收尾帧长度不足：返回可读的解析错误", async () => {
     const transport = new ScriptedTransport(
       idleState(),
-      rebuildResponder((request, emit) => {
+      makeRebuildResponder((request, emit) => {
         emit(ackFrame(request));
         emit(encodeFrame(DEVICE_CMD.SCENE_LIST_END, request.seq, new Uint8Array(25)));
       }),

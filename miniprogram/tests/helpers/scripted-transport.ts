@@ -4,7 +4,8 @@
  */
 
 import { decodeFrame, encodeFrame } from "../../utils/protocol/frame";
-import { DEVICE_CMD } from "../../utils/protocol/constants";
+import { cmdSceneName } from "../../utils/protocol/commands";
+import { CMD, DEVICE_CMD } from "../../utils/protocol/constants";
 import type { Transport } from "../../utils/ble/transport";
 import type { AdapterState, DeviceState, DiscoveredDevice, LinkState } from "../../utils/protocol/types";
 
@@ -101,6 +102,12 @@ export class ScriptedTransport implements Transport {
   emit(frame: Uint8Array): void {
     for (const fn of this.frameListeners.slice()) fn(frame);
   }
+
+  /** 模拟链路状态变化（非主动断线 → 会话回连）。 */
+  emitLink(state: LinkState): void {
+    this._linkState = state;
+    for (const fn of this.linkListeners.slice()) fn(state);
+  }
 }
 
 /** 一份全零 partCounts 的 State，用于让重建跳过逐链布局查询。 */
@@ -116,5 +123,36 @@ export function idleState(overrides: Partial<DeviceState> = {}): DeviceState {
     stripLedCounts: [60, 0, 0, 0, 0, 0, 0, 0],
     partCounts: [0, 0, 0, 0, 0, 0, 0, 0],
     ...overrides,
+  };
+}
+
+/**
+ * 重建期间的固定回复；第 2 次及以后的 QueryScene 交给页面查询脚本。
+ * 覆盖 QueryStripConfig / QueryScene / QueryDeviceInfo 三条重建命令。
+ */
+export function makeRebuildResponder(
+  pageQuery: RequestResponder,
+): RequestResponder {
+  let sceneQueries = 0;
+  return (request, emit) => {
+    if (request.command === CMD.QUERY_STRIP_CONFIG) {
+      emit(ackFrame(request));
+      emit(encodeFrame(DEVICE_CMD.STRIP_CONFIG_REPORT, request.seq, new Uint8Array(24)));
+      return;
+    }
+    if (request.command === CMD.QUERY_DEVICE_INFO) {
+      emit(ackFrame(request));
+      emit(encodeFrame(DEVICE_CMD.DEVICE_INFO_REPORT, request.seq, new Uint8Array(15)));
+      return;
+    }
+    if (request.command === CMD.QUERY_SCENE) {
+      sceneQueries += 1;
+      if (sceneQueries === 1) {
+        emit(ackFrame(request));
+        emit(encodeFrame(DEVICE_CMD.SCENE_LIST_END, request.seq, cmdSceneName(0, "重建场景").payload));
+        return;
+      }
+      pageQuery(request, emit);
+    }
   };
 }

@@ -33,7 +33,7 @@ import {
   parseStripConfigReport,
 } from "../protocol/commands";
 import { cmdQueryDeviceInfo, cmdQueryLayout, cmdQueryScene, cmdQueryStripConfig } from "../protocol/commands";
-import { CMD, DEVICE_CMD } from "../protocol/constants";
+import { ACK_TIMEOUT_MS, CMD, DEVICE_CMD, REPORT_TIMEOUT_MS } from "../protocol/constants";
 import { queryMultiFrame, querySingle } from "./query";
 
 /** 重建期间的本地镜像。 */
@@ -46,11 +46,13 @@ export interface RebuildResult {
 }
 
 export interface RebuildOptions {
-  /** 等待单条命令 ACK 的上限（ms）。 */
+  /** 等待单条命令 ACK 的上限（ms），默认 600。 */
   ackTimeoutMs?: number;
-  /** 等待查询报告（收尾帧）的上限（ms）。 */
+  /** 等待查询报告（收尾帧）的上限（ms），默认 5000。 */
   reportTimeoutMs?: number;
   timer?: TimerApi;
+  /** seq 分配器；会话传入自己的计数器，避免重建与页面查询共用同一批 seq。 */
+  nextSeq?: () => number;
 }
 
 export async function rebuildFromDevice(
@@ -58,13 +60,17 @@ export async function rebuildFromDevice(
   state: DeviceState,
   opts: RebuildOptions = {},
 ): Promise<RebuildResult> {
-  const queryTimeoutMs = opts.reportTimeoutMs ?? opts.ackTimeoutMs ?? 1500;
-  const queryOpts = { timeoutMs: queryTimeoutMs, timer: opts.timer };
-  let seq = 1;
+  const queryOpts = {
+    ackTimeoutMs: opts.ackTimeoutMs ?? ACK_TIMEOUT_MS,
+    reportTimeoutMs: opts.reportTimeoutMs ?? REPORT_TIMEOUT_MS,
+    timer: opts.timer,
+  };
+  let localSeq = 1;
   const next = (): number => {
-    const s = seq;
-    seq = (seq + 1) & 0xff;
-    if (seq === 0) seq = 1;
+    if (opts.nextSeq) return opts.nextSeq();
+    const s = localSeq;
+    localSeq = (localSeq + 1) & 0xff;
+    if (localSeq === 0) localSeq = 1;
     return s;
   };
 
@@ -77,7 +83,7 @@ export async function rebuildFromDevice(
     DEVICE_CMD.STRIP_CONFIG_REPORT,
     queryOpts,
   );
-  const stripConfig = stripRes.ok ? parseStripConfigReport(stripRes.tail.payload) : null;
+  const stripConfig = stripRes.ok ? safeParse(() => parseStripConfigReport(stripRes.tail.payload)) : null;
 
   // 3. 逐链 QueryLayout
   const layout: Array<LayoutReadback | null> = Array.from({ length: 8 }, () => null);
@@ -138,7 +144,16 @@ export async function rebuildFromDevice(
     DEVICE_CMD.DEVICE_INFO_REPORT,
     queryOpts,
   );
-  const deviceInfo = infoRes.ok ? parseDeviceInfoReport(infoRes.tail.payload) : null;
+  const deviceInfo = infoRes.ok ? safeParse(() => parseDeviceInfoReport(infoRes.tail.payload)) : null;
 
   return { state, stripConfig, layout, scene, deviceInfo };
+}
+
+/** 报告内容不完整时返回 null，让部分重建继续降级。 */
+function safeParse<T>(parse: () => T): T | null {
+  try {
+    return parse();
+  } catch {
+    return null;
+  }
 }

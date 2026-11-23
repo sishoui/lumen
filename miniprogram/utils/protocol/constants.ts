@@ -90,6 +90,8 @@ export const CONTINUOUS_INTERVAL_MS = 50;
 
 /** ACK 等待超时（ms）。 */
 export const ACK_TIMEOUT_MS = 600;
+/** 查询报告（多帧收尾 / 单条报告）等待超时（ms）；BLE 多帧报告可能持续数秒。 */
+export const REPORT_TIMEOUT_MS = 5000;
 
 /** 小程序 → 设备命令字（docs/protocol.md §7）。 */
 export const CMD = {

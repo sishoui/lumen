@@ -39,7 +39,9 @@
         "微信开发者工具 + 自动化端口"
       ],
       "missingHint": "缺微信开发者工具自动化端口",
-      "scan": []
+      "scan": [
+        "scripts/user-flows/*.mjs"
+      ]
     },
     "ble": {
       "label": "真机 e2e",
@@ -104,6 +106,16 @@
     "miniprogram/tests/readback.test.ts": {
       "layer": "mp",
       "covers": "多帧读回收尾帧（#20）：场景名保存后 QueryScene 读回、LayoutListEnd 的 partMask、权威重建读回，以及收尾帧缺失 / seq 不匹配 / 长度不足的错误路径",
+      "ticket": "#20"
+    },
+    "miniprogram/tests/reliability.test.ts": {
+      "layer": "mp",
+      "covers": "多帧读回可靠性（#21）：72 帧延迟报告（8 部位 × 8 步）、跨 seq / 坏 CRC 帧过滤、ACK 600ms 与报告 5000ms 两段超时（可注入）、重建进命令泵的串行顺序、QueryStripConfig 单条 0x1C、离散命令 Busy 重试一次与连续量不重试",
+      "ticket": "#21"
+    },
+    "scripts/user-flows/issue-20-21.mjs": {
+      "layer": "ui",
+      "covers": "L4 用户流程（#20/#21）：演示模式连接 → 场景名「客厅模式」保存后重进读回 → 两步时长/灯效重进读回 → 多部位布局重进后部位数、名称、段一致；缺自动化端口时 SKIP",
       "ticket": "#20"
     },
     "miniprogram/tests/reconnect.test.ts": {

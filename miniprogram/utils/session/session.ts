@@ -13,7 +13,7 @@
 
 import type { Transport } from "../ble/transport";
 import {
-  parseLayoutReport, parseLayoutListEnd,
+  parseLayoutReport, parseLayoutListEnd, parseStripConfigReport,
   parseScenePartReport, parseSceneStepReport, parseSceneListEnd, buildSceneReport,
 } from "../protocol/commands";
 import type { TimerApi } from "../ble/throttle";
@@ -22,13 +22,13 @@ import type { AdapterState, DeviceInfo, DeviceState, DiscoveredDevice, LayoutPar
 import type { AckResult } from "../protocol/types";
 import {
   cmdSetPower, cmdSetBrightness, cmdSetLedCount, cmdSetStripPower, cmdActivateScene, cmdSelfTest,
-  cmdLayoutWrite, cmdLayoutPart, cmdLayoutSeg, cmdLayoutCommit,
+  cmdLayoutWrite, cmdLayoutPart, cmdLayoutSeg, cmdLayoutCommit, cmdQueryStripConfig,
   cmdScenePart, cmdSceneStep, cmdSceneName,
 } from "../protocol/commands";
-import { encodeFrame } from "../protocol/frame";
-import { DEVICE_CMD, CMD } from "../protocol/constants";
+import { decodeFrame, encodeFrame } from "../protocol/frame";
+import { DEVICE_CMD, CMD, REPORT_TIMEOUT_MS, RESULT } from "../protocol/constants";
 import { rebuildFromDevice } from "./rebuild";
-import { queryMultiFrame } from "./query";
+import { queryMultiFrame, querySingle } from "./query";
 import { ReconnectSupervisor } from "./reconnect";
 import type { SessionStorage, CachedDevice } from "./device-cache";
 import { loadCachedDevice, saveCachedDevice, createWxStorage } from "./device-cache";
@@ -70,7 +70,10 @@ export interface SessionOptions {
   transport: Transport;
   timer?: TimerApi;
   reconnectDelaysMs?: number[];
+  /** 离散命令等待 ACK 的上限（ms），默认 600。 */
   ackTimeoutMs?: number;
+  /** 查询等待报告（收尾帧）的上限（ms），默认 5000。 */
+  reportTimeoutMs?: number;
   storage?: SessionStorage;
 }
 
@@ -83,6 +86,7 @@ export class ControlSession {
   private readonly transport: Transport;
   private readonly timer: TimerApi;
   private readonly ackTimeoutMs: number;
+  private readonly reportTimeoutMs: number;
   private readonly storage: SessionStorage;
   private readonly reconnect: ReconnectSupervisor;
 
@@ -102,6 +106,7 @@ export class ControlSession {
     this.transport = opts.transport;
     this.timer = opts.timer ?? defaultTimer;
     this.ackTimeoutMs = opts.ackTimeoutMs ?? 600;
+    this.reportTimeoutMs = opts.reportTimeoutMs ?? REPORT_TIMEOUT_MS;
     this.storage = opts.storage ?? createWxStorage();
 
     this.reconnect = new ReconnectSupervisor(
@@ -163,6 +168,15 @@ export class ControlSession {
     return s;
   }
 
+  /** 查询的两段超时：ACK 600ms，报告 5000ms（可注入）。 */
+  private queryTiming() {
+    return {
+      ackTimeoutMs: this.ackTimeoutMs,
+      reportTimeoutMs: this.reportTimeoutMs,
+      timer: this.timer,
+    };
+  }
+
   /** 连接 + 初始化流水线 + 权威重建。 */
   async connect(deviceId: string, broadcastName?: string): Promise<DeviceState> {
     if (this.destroyed) throw new Error("session 已 destroy");
@@ -172,8 +186,8 @@ export class ControlSession {
       const state = await this.transport.connect(deviceId, broadcastName);
       this.epoch += 1;
       this.handleConnected(state);
-      // 权威重建（异步，不阻塞 connect 返回）
-      void this.runRebuild(state);
+      // 权威重建进命令泵：页面查询排在它之后；connect 仍立即返回 State。
+      void this.enqueue((epochAtRun) => this.runRebuild(state, epochAtRun));
       return state;
     } finally {
       this.reconnect.onManualConnectEnd();
@@ -182,7 +196,7 @@ export class ControlSession {
 
   private handleConnected(state: DeviceState): void {
     this.latestState = state;
-    this.epoch += 1;
+    // epoch 由 connect / disconnect 递增；这里再递增会让刚入泵的重建结果被误判为 stale。
     const cached = this.cachedDevice();
     const deviceId = this.transport.currentDeviceId;
     if (deviceId) {
@@ -190,10 +204,15 @@ export class ControlSession {
     }
   }
 
-  private async runRebuild(state: DeviceState): Promise<void> {
+  private async runRebuild(state: DeviceState, epochAtRun: number): Promise<void> {
     try {
-      const result = await rebuildFromDevice(this.transport, state, { ackTimeoutMs: this.ackTimeoutMs });
-      if (this.reconnect.isStale(this.epoch - 1)) return;
+      const result = await rebuildFromDevice(this.transport, state, {
+        ackTimeoutMs: this.ackTimeoutMs,
+        reportTimeoutMs: this.reportTimeoutMs,
+        timer: this.timer,
+        nextSeq: () => this.nextSeq(),
+      });
+      if (epochAtRun !== this.epoch) return;
       this.latestStripConfig = result.stripConfig;
       this.latestLayout = result.layout;
       this.latestScene = result.scene;
@@ -235,25 +254,27 @@ export class ControlSession {
     return run;
   }
 
-  private async sendFrameAndWaitAck(command: number, payload: Uint8Array, epochAtSend: number): Promise<AckResult> {
-    const seq = this.nextSeq();
+  private async sendFrameAndWaitAck(
+    command: number,
+    payload: Uint8Array,
+    epochAtSend: number,
+    seq = this.nextSeq(),
+  ): Promise<AckResult> {
     const frame = encodeFrame(command, seq, payload);
     return new Promise<AckResult>((resolve, reject) => {
       let settled = false;
       const off = this.transport.onFrame((f) => {
         if (settled) return;
-        if (f.length < 3) return;
-        if (f[2] !== DEVICE_CMD.ACK) return;
-        if (f.length < 8) return;
-        const ackSeq = f[3];
-        if (ackSeq !== seq) return;
+        const decoded = decodeFrame(f);
+        if (!decoded.ok) return;
+        if (decoded.command !== DEVICE_CMD.ACK || decoded.seq !== seq) return;
+        if (decoded.payload.length < 2 || decoded.payload[0] !== command) return;
+        const ackCmd = decoded.payload[0];
+        const ackResult = decoded.payload[1];
         settled = true;
         clearTimeout(timer);
         off();
-        // ACK payload: [原命令字, 结果码]，位于 offset 6..7
-        const ackCmd = f[6];
-        const ackResult = f[7];
-        resolve({ seq: ackSeq, command: ackCmd, resultCode: ackResult, ok: ackResult === 0 });
+        resolve({ seq, command: ackCmd, resultCode: ackResult, ok: ackResult === 0 });
       });
       const timer = this.timer.setTimeout(() => {
         if (settled) return;
@@ -271,10 +292,23 @@ export class ControlSession {
     });
   }
 
+  /** 离散命令：Busy 是协议里唯一可重试的结果码，复用同一 seq 重发一次。 */
+  private async sendDiscreteAck(
+    command: number,
+    payload: Uint8Array,
+    epochAtSend: number,
+  ): Promise<AckResult> {
+    const seq = this.nextSeq();
+    const first = await this.sendFrameAndWaitAck(command, payload, epochAtSend, seq);
+    if (first.resultCode !== RESULT.BUSY) return first;
+    if (epochAtSend !== this.epoch) return first;
+    return this.sendFrameAndWaitAck(command, payload, epochAtSend, seq);
+  }
+
   private async runCommand(command: number, payload: Uint8Array): Promise<CommandResult> {
     const epochAtSend = this.epoch;
     try {
-      const ack = await this.sendFrameAndWaitAck(command, payload, epochAtSend);
+      const ack = await this.sendDiscreteAck(command, payload, epochAtSend);
       if (epochAtSend !== this.epoch) return { kind: "stale" };
       if (ack.ok) {
         const state = await this.transport.readState().catch(() => this.latestState);
@@ -351,20 +385,20 @@ export class ControlSession {
           byStrip.get(p.stripId)!.push(p);
         }
         for (const [stripId, stripParts] of byStrip) {
-          const w = await this.sendFrameAndWaitAck(CMD.LAYOUT_WRITE, cmdLayoutWrite(stripId, stripParts.length).payload, epochAtSend);
+          const w = await this.sendDiscreteAck(CMD.LAYOUT_WRITE, cmdLayoutWrite(stripId, stripParts.length).payload, epochAtSend);
           if (!w.ok) return { kind: "ack-error", ack: w };
           for (const p of stripParts) {
             const partCmd = cmdLayoutPart(p.stripId, p.partId, p.name, p.segs.length, p.phase);
-            const r = await this.sendFrameAndWaitAck(CMD.LAYOUT_PART, partCmd.payload, epochAtSend);
+            const r = await this.sendDiscreteAck(CMD.LAYOUT_PART, partCmd.payload, epochAtSend);
             if (!r.ok) return { kind: "ack-error", ack: r };
             for (let i = 0; i < p.segs.length; i += 1) {
               const segCmd = cmdLayoutSeg(p.stripId, p.partId, i, p.segs[i][0], p.segs[i][1]);
-              const sr = await this.sendFrameAndWaitAck(CMD.LAYOUT_SEG, segCmd.payload, epochAtSend);
+              const sr = await this.sendDiscreteAck(CMD.LAYOUT_SEG, segCmd.payload, epochAtSend);
               if (!sr.ok) return { kind: "ack-error", ack: sr };
             }
           }
         }
-        const commit = await this.sendFrameAndWaitAck(CMD.LAYOUT_COMMIT, cmdLayoutCommit().payload, epochAtSend);
+        const commit = await this.sendDiscreteAck(CMD.LAYOUT_COMMIT, cmdLayoutCommit().payload, epochAtSend);
         if (!commit.ok) return { kind: "ack-error", ack: commit };
         if (epochAtSend !== this.epoch) return { kind: "stale" };
         const state = await this.transport.readState().catch(() => this.latestState);
@@ -381,7 +415,7 @@ export class ControlSession {
     return this.enqueue(async (epochAtSend) => {
       try {
         const cmd = cmdScenePart(sceneId, stripId, partId, head.stepCount, head.loop, head.on);
-        const r = await this.sendFrameAndWaitAck(CMD.SCENE_PART, cmd.payload, epochAtSend);
+        const r = await this.sendDiscreteAck(CMD.SCENE_PART, cmd.payload, epochAtSend);
         if (epochAtSend !== this.epoch) return { kind: "stale" };
         if (r.ok) return { kind: "ok" };
         return { kind: "ack-error", ack: r };
@@ -395,7 +429,7 @@ export class ControlSession {
     return this.enqueue(async (epochAtSend) => {
       try {
         const cmd = cmdSceneStep({ ...step, sceneId, stripId, partId, stepIndex });
-        const r = await this.sendFrameAndWaitAck(CMD.SCENE_STEP, cmd.payload, epochAtSend);
+        const r = await this.sendDiscreteAck(CMD.SCENE_STEP, cmd.payload, epochAtSend);
         if (epochAtSend !== this.epoch) return { kind: "stale" };
         if (r.ok) return { kind: "ok" };
         return { kind: "ack-error", ack: r };
@@ -409,7 +443,7 @@ export class ControlSession {
     return this.enqueue(async (epochAtSend) => {
       try {
         const cmd = cmdSceneName(sceneId, name);
-        const r = await this.sendFrameAndWaitAck(CMD.SCENE_NAME, cmd.payload, epochAtSend);
+        const r = await this.sendDiscreteAck(CMD.SCENE_NAME, cmd.payload, epochAtSend);
         if (epochAtSend !== this.epoch) return { kind: "stale" };
         if (r.ok) return { kind: "ok" };
         return { kind: "ack-error", ack: r };
@@ -422,14 +456,21 @@ export class ControlSession {
   // ---------------- 查询 ----------------
 
   queryStripConfig(): Promise<StripConfigResult> {
-    return this.enqueue(async () => {
+    return this.enqueue(async (epochAtSend) => {
       try {
-        const res = await rebuildFromDevice(this.transport, this.latestState!, { ackTimeoutMs: this.ackTimeoutMs });
-        if (res.stripConfig) {
-          this.latestStripConfig = res.stripConfig;
-          return { kind: "ok", config: res.stripConfig };
-        }
-        return { kind: "error", message: "QueryStripConfig 失败" };
+        const res = await querySingle(
+          this.transport,
+          CMD.QUERY_STRIP_CONFIG,
+          cmdQueryStripConfig().payload,
+          this.nextSeq(),
+          DEVICE_CMD.STRIP_CONFIG_REPORT,
+          this.queryTiming(),
+        );
+        if (epochAtSend !== this.epoch) return { kind: "stale" };
+        if (!res.ok) return { kind: "error", message: res.message };
+        const config = parseStripConfigReport(res.tail.payload);
+        this.latestStripConfig = config;
+        return { kind: "ok", config };
       } catch (err) {
         return { kind: "error", message: err instanceof Error ? err.message : String(err) };
       }
@@ -457,7 +498,7 @@ export class ControlSession {
       new Uint8Array([stripId]),
       this.nextSeq(),
       DEVICE_CMD.LAYOUT_LIST_END,
-      { timeoutMs: this.ackTimeoutMs, timer: this.timer },
+      this.queryTiming(),
     );
     if (!res.ok) throw new Error(res.message);
     const parts = res.body
@@ -488,7 +529,7 @@ export class ControlSession {
       new Uint8Array([sceneId]),
       this.nextSeq(),
       DEVICE_CMD.SCENE_LIST_END,
-      { timeoutMs: this.ackTimeoutMs, timer: this.timer },
+      this.queryTiming(),
     );
     if (!res.ok) throw new Error(res.message);
     const parts = res.body
