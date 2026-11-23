@@ -130,6 +130,8 @@ export class ControlSession {
   }
 
   get linkState(): LinkState { return this._linkState; }
+  /** 当前传输层（只读，页面用来读 currentDeviceId / 挂监听）。 */
+  get transportRef(): Transport { return this.transport; }
   get deviceState(): DeviceState | null { return this.latestState; }
   get deviceInfo(): DeviceInfo | null { return this.latestDeviceInfo; }
   get stripConfig(): StripConfig | null { return this.latestStripConfig; }

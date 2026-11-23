@@ -21,15 +21,37 @@ import { BleTransport } from "../ble/ble-transport";
 let session: ControlSession | null = null;
 let mockMode: boolean | null = null;
 
-export function getSession(): ControlSession {
-  if (session !== null) return session;
+function buildSession(): ControlSession {
   const storage = createWxStorage();
   mockMode = mockModeEnabled(storage);
   const transport = mockMode
     ? new MockTransport({ scenario: "normal" })
     : new BleTransport({ wxApi: new DefaultWxApi() });
-  session = new ControlSession({ transport, storage });
+  return new ControlSession({ transport, storage });
+}
+
+export function getSession(): ControlSession {
+  if (session !== null) return session;
+  session = buildSession();
   return session;
+}
+
+/**
+ * 演示模式开关拨动后调用：按当前 storage 偏好重建会话。
+ *
+ * 「重启生效」曾经是这个开关的契约，用户报「打开演示模式后扫不出设备」——
+ * 开关只写了 storage，transport 却还是旧的。重建让开关即时生效：
+ * 旧会话 destroy（订阅与定时器一并回收），新会话按新偏好构造。
+ *
+ * @returns 是否真的重建了（mock 模式没变时 false，调用方可跳过清列表）。
+ */
+export function rebuildSessionForCurrentMockMode(): boolean {
+  const next = mockModeEnabled(createWxStorage());
+  if (next === mockMode && session !== null) return false;
+  const prev = session;
+  session = buildSession();
+  if (prev !== null) prev.destroy();
+  return true;
 }
 
 export function setSession(next: ControlSession): void {

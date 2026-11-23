@@ -81,6 +81,11 @@
       "covers": "帧边界 / 分片重组边界",
       "ticket": "#13"
     },
+    "miniprogram/tests/mock-mode.test.ts": {
+      "layer": "mp",
+      "covers": "演示模式开关：存储语义（无记录自动开 / 显式偏好优先）+ rebuildSessionForCurrentMockMode 即时重建会话（mock↔ble 切换、幂等）",
+      "ticket": "#13"
+    },
     "miniprogram/tests/mock-scenarios.test.ts": {
       "layer": "mp",
       "covers": "Mock 场景：normal / slow / flaky / offline 四场景行为",
