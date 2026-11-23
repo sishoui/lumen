@@ -247,6 +247,11 @@
       "layer": "ui",
       "covers": "工单 #28 用户流程：演示模式重置后造一步 → layer0 level 101 保存被拦截且提示含亮度/100、步骤未被改写 → 心跳周期 200 提示含 500–1500 → 呼吸→静态保存读回 period=0 → 熄灭保存读回 hue/sat/period 全 0 → 叠加层空层保存读回 0xFF 全 0；缺自动化端口时 SKIP",
       "ticket": "#28"
+    },
+    "miniprogram/tests/scene-prepare-save.test.ts": {
+      "covers": "保存前先校验再归一化（#28）：心跳 period=200 被拒且错误含 500–1500（不被 normalizeLayer 清零吞掉）、心跳 500/1500 通过且 period 保留、呼吸→静态 period=0、熄灭 hue/sat/period 全 0、level 101 被拒、叠加层空层 type=0xFF 全 0",
+      "layer": "mp",
+      "ticket": "#28"
     }
   }
 }

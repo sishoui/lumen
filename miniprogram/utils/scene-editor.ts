@@ -298,6 +298,27 @@ export function validateLayerForSend(layer: EffectLayer, options: { isOverlay: b
   }
 }
 
+/** 保存准备结果：合法时给出归一化后的两层，非法时给出字段级错误。 */
+export type PreparedLayers =
+  | { ok: true; layer0: EffectLayer; layer1: EffectLayer }
+  | { ok: false; errors: LayerFieldError[] };
+
+/**
+ * 保存前先校验用户输入、再归一化。
+ *
+ * 顺序是关键：normalizeLayer 会把「周期不合法」的层置 0（0 = 设备默认），
+ * 若先归一化再校验，心跳周期 200 会变成 0 混过校验，非法输入被吞。
+ * 因此这里先对编辑器原始值跑 validateLayerForSend，通过后才归一化。
+ */
+export function prepareLayersForSave(layer0: EffectLayer, layer1: EffectLayer): PreparedLayers {
+  const bad0 = validateLayerForSend(layer0, { isOverlay: false });
+  const bad1 = validateLayerForSend(layer1, { isOverlay: true });
+  if (!bad0.ok || !bad1.ok) {
+    return { ok: false, errors: [...bad0.errors, ...bad1.errors] };
+  }
+  return { ok: true, layer0: normalizeLayer(layer0), layer1: normalizeLayer(layer1) };
+}
+
 /** 循环模式中文名。 */
 export const LOOP_NAMES: Record<number, string> = {
   [LOOP.NONE]: "不循环",

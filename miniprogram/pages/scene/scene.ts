@@ -4,7 +4,7 @@ import { getSession } from "../../utils/session/singleton";
 import {
   formatDuration, formatLayer, effectLabel,
   layerPickerOptions, pickerIndexToType, pickerIndexForType, layerFieldVisibility,
-  normalizeLayer, switchEffectType, validateLayerForSend,
+  normalizeLayer, switchEffectType, prepareLayersForSave,
   validateDuration,
   getStepsForPart, getPartHead, totalDuration,
   createEmptyStep, createStaticLayer,
@@ -324,17 +324,18 @@ Page({
     const stepIndex = this.data.activeStepIndex;
     const err = validateDuration(this.data.durationMs);
     if (err) { this.setData({ hint: err }); return; }
-    const layer0 = normalizeLayer(this.editorLayer(0));
-    const layer1 = normalizeLayer(this.editorLayer(1));
-    const bad0 = validateLayerForSend(layer0, { isOverlay: false });
-    const bad1 = validateLayerForSend(layer1, { isOverlay: true });
-    if (!bad0.ok || !bad1.ok) {
+    // 先校验用户输入再归一化：normalizeLayer 会把非法周期清零，若先归一化再校验会吞掉错误。
+    const prepared = prepareLayersForSave(this.editorLayer(0), this.editorLayer(1));
+    if (!prepared.ok) {
+      const first = prepared.errors.length > 0 ? prepared.errors[0].message : "参数不合法";
       this.setData({
-        layerErrors: [...bad0.errors, ...bad1.errors],
-        hint: `参数不合法，未发送：${bad0.firstError || bad1.firstError}`,
+        layerErrors: [...prepared.errors],
+        hint: `参数不合法，未发送：${first}`,
       });
       return;
     }
+    const layer0 = prepared.layer0;
+    const layer1 = prepared.layer1;
     this.setData({ layerErrors: [] });
     const step: SceneStep = {
       sceneId: this.data.sceneId,
