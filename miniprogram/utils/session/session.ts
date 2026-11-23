@@ -13,7 +13,7 @@
 
 import type { Transport } from "../ble/transport";
 import {
-  parseStripConfigReport, parseDeviceInfoReport, parseLayoutReport, parseLayoutListEnd,
+  parseLayoutReport, parseLayoutListEnd,
   parseScenePartReport, parseSceneStepReport, parseSceneListEnd, buildSceneReport,
 } from "../protocol/commands";
 import type { TimerApi } from "../ble/throttle";
@@ -22,12 +22,13 @@ import type { AdapterState, DeviceInfo, DeviceState, DiscoveredDevice, LayoutPar
 import type { AckResult } from "../protocol/types";
 import {
   cmdSetPower, cmdSetBrightness, cmdSetLedCount, cmdSetStripPower, cmdActivateScene, cmdSelfTest,
-  cmdLayoutWrite, cmdLayoutPart, cmdLayoutSeg, cmdLayoutCommit, cmdQueryLayout,
-  cmdScenePart, cmdSceneStep, cmdSceneName, cmdQueryScene, cmdQueryStripConfig, cmdQueryDeviceInfo,
+  cmdLayoutWrite, cmdLayoutPart, cmdLayoutSeg, cmdLayoutCommit,
+  cmdScenePart, cmdSceneStep, cmdSceneName,
 } from "../protocol/commands";
 import { encodeFrame } from "../protocol/frame";
 import { DEVICE_CMD, CMD } from "../protocol/constants";
-import { rebuildFromDevice, queryMultiFrame } from "./rebuild";
+import { rebuildFromDevice } from "./rebuild";
+import { queryMultiFrame } from "./query";
 import { ReconnectSupervisor } from "./reconnect";
 import type { SessionStorage, CachedDevice } from "./device-cache";
 import { loadCachedDevice, saveCachedDevice, createWxStorage } from "./device-cache";
@@ -441,67 +442,63 @@ export class ControlSession {
         // 每次都从设备重新查询（不读缓存），保证编辑器读到最新数据
         const result = await this.runLayoutQuery(stripId);
         if (epochAtSend !== this.epoch) return { kind: "stale" };
-        if (result) {
-          this.latestLayout[stripId] = result;
-          return { kind: "ok", layout: result };
-        }
-        return { kind: "error", message: "QueryLayout 查询失败" };
+        this.latestLayout[stripId] = result;
+        return { kind: "ok", layout: result };
       } catch (err) {
         return { kind: "error", message: err instanceof Error ? err.message : String(err) };
       }
     });
   }
 
-  private async runLayoutQuery(stripId: number): Promise<LayoutReadback | null> {
-    const res = await queryMultiFrame(this.transport, CMD.QUERY_LAYOUT, new Uint8Array([stripId]), this.nextSeq(), DEVICE_CMD.LAYOUT_LIST_END, this.ackTimeoutMs);
-    if (!res.ok) return null;
-    const parts = res.frames
-      .filter((f) => f.length >= 3 && f[2] === DEVICE_CMD.LAYOUT_REPORT)
-      .map((f) => parseLayoutReport(f.slice(6, f.length - 2)));
-    const endFrame = res.frames.find((f) => f.length >= 3 && f[2] === DEVICE_CMD.LAYOUT_LIST_END);
-    const partMask = endFrame && endFrame.length >= 8 ? endFrame[7] : 0;
-    return { stripId, parts, partMask };
+  private async runLayoutQuery(stripId: number): Promise<LayoutReadback> {
+    const res = await queryMultiFrame(
+      this.transport,
+      CMD.QUERY_LAYOUT,
+      new Uint8Array([stripId]),
+      this.nextSeq(),
+      DEVICE_CMD.LAYOUT_LIST_END,
+      { timeoutMs: this.ackTimeoutMs, timer: this.timer },
+    );
+    if (!res.ok) throw new Error(res.message);
+    const parts = res.body
+      .filter((f) => f.command === DEVICE_CMD.LAYOUT_REPORT)
+      .map((f) => parseLayoutReport(f.payload));
+    const end = parseLayoutListEnd(res.tail.payload);
+    return { stripId, parts, partMask: end.partMask };
   }
 
   queryScene(sceneId: number): Promise<SceneResult> {
     return this.enqueue(async (epochAtSend) => {
-      // 每次都从设备重新查询（不读缓存），保证编辑器读到最新数据
-      const cached = this.latestScene;
-      if (cached && cached.sceneId === sceneId) {
-        // 即使缓存匹配也重新查询，因为编辑器可能刚写了步骤
-      }
       try {
-        const cmd = cmdQueryScene(sceneId);
-        // 用 rebuild 的 queryMultiFrame 逻辑重新查询
+        // 每次都从设备重新查询（不读缓存），保证编辑器读到最新数据
         const result = await this.runSceneQuery(sceneId);
         if (epochAtSend !== this.epoch) return { kind: "stale" };
-        if (result) {
-          this.latestScene = result;
-          return { kind: "ok", scene: result };
-        }
-        return { kind: "error", message: "QueryScene 查询失败" };
+        this.latestScene = result;
+        return { kind: "ok", scene: result };
       } catch (err) {
         return { kind: "error", message: err instanceof Error ? err.message : String(err) };
       }
     });
   }
 
-  private async runSceneQuery(sceneId: number): Promise<SceneReport | null> {
-    const res = await queryMultiFrame(this.transport, CMD.QUERY_SCENE, new Uint8Array([sceneId]), this.nextSeq(), DEVICE_CMD.SCENE_LIST_END, this.ackTimeoutMs);
-    if (!res.ok) return null;
-    const parts = res.frames
-      .filter((f) => f.length >= 3 && f[2] === DEVICE_CMD.SCENE_PART_REPORT)
-      .map((f) => parseScenePartReport(f.slice(6, f.length - 2)));
-    const steps = res.frames
-      .filter((f) => f.length >= 3 && f[2] === DEVICE_CMD.SCENE_STEP_REPORT)
-      .map((f) => parseSceneStepReport(f.slice(6, f.length - 2)));
-    const endFrame = res.frames.find((f) => f.length >= 3 && f[2] === DEVICE_CMD.SCENE_LIST_END);
-    let name = "";
-    if (endFrame && endFrame.length >= 2 + 26) {
-      const parsed = parseSceneListEnd(endFrame.slice(6, endFrame.length - 2));
-      name = parsed.name;
-    }
-    return buildSceneReport(sceneId, name, parts, steps);
+  private async runSceneQuery(sceneId: number): Promise<SceneReport> {
+    const res = await queryMultiFrame(
+      this.transport,
+      CMD.QUERY_SCENE,
+      new Uint8Array([sceneId]),
+      this.nextSeq(),
+      DEVICE_CMD.SCENE_LIST_END,
+      { timeoutMs: this.ackTimeoutMs, timer: this.timer },
+    );
+    if (!res.ok) throw new Error(res.message);
+    const parts = res.body
+      .filter((f) => f.command === DEVICE_CMD.SCENE_PART_REPORT)
+      .map((f) => parseScenePartReport(f.payload));
+    const steps = res.body
+      .filter((f) => f.command === DEVICE_CMD.SCENE_STEP_REPORT)
+      .map((f) => parseSceneStepReport(f.payload));
+    const end = parseSceneListEnd(res.tail.payload);
+    return buildSceneReport(sceneId, end.name, parts, steps);
   }
 
   queryDeviceInfo(): Promise<DeviceInfoResult> {

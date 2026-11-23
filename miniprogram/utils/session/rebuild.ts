@@ -10,9 +10,11 @@
  *
  * 上限与能力全部从设备读，不硬编码 8/8/8/3。
  * 部分失败降级：某链 QueryLayout 失败 → layout[i] 保持 null；DeviceInfo 失败不阻塞其余。
+ * 收尾帧由 queryMultiFrame 直接返回，不再从正文帧里二次查找。
  */
 
 import type { Transport } from "../ble/transport";
+import type { TimerApi } from "../ble/throttle";
 import type {
   DeviceInfo,
   DeviceState,
@@ -20,10 +22,19 @@ import type {
   SceneReport,
   StripConfig,
 } from "../protocol/types";
-import { parseStripConfigReport, parseDeviceInfoReport, parseLayoutReport, parseLayoutListEnd, parseScenePartReport, parseSceneStepReport, parseSceneListEnd, buildSceneReport } from "../protocol/commands";
-import { encodeFrame } from "../protocol/frame";
-import { cmdQueryStripConfig, cmdQueryLayout, cmdQueryScene, cmdQueryDeviceInfo } from "../protocol/commands";
-import { DEVICE_CMD, CMD } from "../protocol/constants";
+import {
+  buildSceneReport,
+  parseDeviceInfoReport,
+  parseLayoutListEnd,
+  parseLayoutReport,
+  parseSceneListEnd,
+  parseScenePartReport,
+  parseSceneStepReport,
+  parseStripConfigReport,
+} from "../protocol/commands";
+import { cmdQueryDeviceInfo, cmdQueryLayout, cmdQueryScene, cmdQueryStripConfig } from "../protocol/commands";
+import { CMD, DEVICE_CMD } from "../protocol/constants";
+import { queryMultiFrame, querySingle } from "./query";
 
 /** 重建期间的本地镜像。 */
 export interface RebuildResult {
@@ -34,152 +45,100 @@ export interface RebuildResult {
   deviceInfo: DeviceInfo | null;
 }
 
-/**
- * 发送一条命令并等待多帧报告收尾（LayoutListEnd / SceneListEnd）。
- * 返回收尾帧之前的所有帧（不含 ACK）。
- */
-export async function queryMultiFrame(
-  transport: Transport,
-  cmd: number,
-  payload: Uint8Array,
-  seq: number,
-  endCommand: number,
-  timeoutMs: number,
-): Promise<{ frames: Uint8Array[]; ok: boolean }> {
-  return new Promise((resolve) => {
-    const frames: Uint8Array[] = [];
-    let settled = false;
-    const off = transport.onFrame((frame) => {
-      if (settled) return;
-      // 简单解析 command 字节（offset 2）
-      if (frame.length < 3) return;
-      const cmdByte = frame[2];
-      if (cmdByte === endCommand) {
-        settled = true;
-        clearTimeout(timer);
-        off();
-        resolve({ frames, ok: true });
-      } else if (cmdByte === DEVICE_CMD.ACK) {
-        // 跳过 ACK，继续等报告
-      } else {
-        frames.push(frame);
-      }
-    });
-    const timer = setTimeout(() => {
-      if (settled) return;
-      settled = true;
-      off();
-      resolve({ frames, ok: false });
-    }, timeoutMs);
-
-    const frame = encodeFrame(cmd, seq, payload);
-    void transport.sendFrame(frame).catch(() => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      off();
-      resolve({ frames: [], ok: false });
-    });
-  });
-}
-
-/** 单帧查询（ACK 即可）。 */
-async function querySingle(
-  transport: Transport,
-  cmd: number,
-  payload: Uint8Array,
-  seq: number,
-  reportCommand: number,
-  timeoutMs: number,
-): Promise<{ report: Uint8Array | null; ok: boolean }> {
-  return new Promise((resolve) => {
-    let settled = false;
-    const off = transport.onFrame((frame) => {
-      if (settled) return;
-      if (frame.length < 3) return;
-      const cmdByte = frame[2];
-      if (cmdByte === reportCommand) {
-        settled = true;
-        clearTimeout(timer);
-        off();
-        // frame: magic(1) ver(1) cmd(1) seq(1) len(2) payload crc16(2)
-        // payload 从 offset 6 开始，长度 = frame.length - 8
-        const payload = frame.slice(6, frame.length - 2);
-        resolve({ report: payload, ok: true });
-      } else if (cmdByte === DEVICE_CMD.ACK) {
-        // 等报告
-      }
-    });
-    const timer = setTimeout(() => {
-      if (settled) return;
-      settled = true;
-      off();
-      resolve({ report: null, ok: false });
-    }, timeoutMs);
-
-    const frame = encodeFrame(cmd, seq, payload);
-    void transport.sendFrame(frame).catch(() => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      off();
-      resolve({ report: null, ok: false });
-    });
-  });
+export interface RebuildOptions {
+  /** 等待单条命令 ACK 的上限（ms）。 */
+  ackTimeoutMs?: number;
+  /** 等待查询报告（收尾帧）的上限（ms）。 */
+  reportTimeoutMs?: number;
+  timer?: TimerApi;
 }
 
 export async function rebuildFromDevice(
   transport: Transport,
   state: DeviceState,
-  opts: { ackTimeoutMs?: number } = {},
+  opts: RebuildOptions = {},
 ): Promise<RebuildResult> {
-  const timeout = opts.ackTimeoutMs ?? 1500;
+  const queryTimeoutMs = opts.reportTimeoutMs ?? opts.ackTimeoutMs ?? 1500;
+  const queryOpts = { timeoutMs: queryTimeoutMs, timer: opts.timer };
   let seq = 1;
-  const next = () => { const s = seq; seq = (seq + 1) & 0xff; return s; };
+  const next = (): number => {
+    const s = seq;
+    seq = (seq + 1) & 0xff;
+    if (seq === 0) seq = 1;
+    return s;
+  };
 
   // 2. StripConfig
-  const stripRes = await querySingle(transport, CMD.QUERY_STRIP_CONFIG, new Uint8Array([]), next(), DEVICE_CMD.STRIP_CONFIG_REPORT, timeout);
-  const stripConfig = stripRes.ok && stripRes.report ? parseStripConfigReport(stripRes.report) : null;
+  const stripRes = await querySingle(
+    transport,
+    CMD.QUERY_STRIP_CONFIG,
+    cmdQueryStripConfig().payload,
+    next(),
+    DEVICE_CMD.STRIP_CONFIG_REPORT,
+    queryOpts,
+  );
+  const stripConfig = stripRes.ok ? parseStripConfigReport(stripRes.tail.payload) : null;
 
   // 3. 逐链 QueryLayout
   const layout: Array<LayoutReadback | null> = Array.from({ length: 8 }, () => null);
   for (let stripId = 0; stripId < 8; stripId += 1) {
     const partCount = state.partCounts[stripId] ?? 0;
     if (partCount <= 0) continue;
-    const res = await queryMultiFrame(transport, CMD.QUERY_LAYOUT, new Uint8Array([stripId]), next(), DEVICE_CMD.LAYOUT_LIST_END, timeout);
+    const res = await queryMultiFrame(
+      transport,
+      CMD.QUERY_LAYOUT,
+      cmdQueryLayout(stripId).payload,
+      next(),
+      DEVICE_CMD.LAYOUT_LIST_END,
+      queryOpts,
+    );
     if (!res.ok) continue;
-    const parts = res.frames
-      .filter((f) => f.length >= 3 && f[2] === DEVICE_CMD.LAYOUT_REPORT)
-      .map((f) => parseLayoutReport(f.slice(6, f.length - 2)));
-    const endFrame = res.frames.find((f) => f.length >= 3 && f[2] === DEVICE_CMD.LAYOUT_LIST_END);
-    const partMask = endFrame && endFrame.length >= 8 ? endFrame[7] : 0;
-    layout[stripId] = { stripId, parts, partMask };
+    try {
+      const parts = res.body
+        .filter((f) => f.command === DEVICE_CMD.LAYOUT_REPORT)
+        .map((f) => parseLayoutReport(f.payload));
+      const end = parseLayoutListEnd(res.tail.payload);
+      layout[stripId] = { stripId, parts, partMask: end.partMask };
+    } catch {
+      // 该链读回内容不完整：保持 null，不拿半份数据冒充成功。
+    }
   }
 
   // 4. QueryScene(activeScene)
-  const sceneRes = await queryMultiFrame(transport, CMD.QUERY_SCENE, new Uint8Array([state.activeScene]), next(), DEVICE_CMD.SCENE_LIST_END, timeout);
+  const sceneRes = await queryMultiFrame(
+    transport,
+    CMD.QUERY_SCENE,
+    cmdQueryScene(state.activeScene).payload,
+    next(),
+    DEVICE_CMD.SCENE_LIST_END,
+    queryOpts,
+  );
   let scene: SceneReport | null = null;
   if (sceneRes.ok) {
-    const parts = sceneRes.frames
-      .filter((f) => f.length >= 3 && f[2] === DEVICE_CMD.SCENE_PART_REPORT)
-      .map((f) => parseScenePartReport(f.slice(6, f.length - 2)));
-    const steps = sceneRes.frames
-      .filter((f) => f.length >= 3 && f[2] === DEVICE_CMD.SCENE_STEP_REPORT)
-      .map((f) => parseSceneStepReport(f.slice(6, f.length - 2)));
-    const endFrame = sceneRes.frames.find((f) => f.length >= 3 && f[2] === DEVICE_CMD.SCENE_LIST_END);
-    let name = "";
-    if (endFrame && endFrame.length >= 2 + SCENE_NAME_BYTES_LOCAL) {
-      const parsed = parseSceneListEnd(endFrame.slice(6, endFrame.length - 2));
-      name = parsed.name;
+    try {
+      const parts = sceneRes.body
+        .filter((f) => f.command === DEVICE_CMD.SCENE_PART_REPORT)
+        .map((f) => parseScenePartReport(f.payload));
+      const steps = sceneRes.body
+        .filter((f) => f.command === DEVICE_CMD.SCENE_STEP_REPORT)
+        .map((f) => parseSceneStepReport(f.payload));
+      const end = parseSceneListEnd(sceneRes.tail.payload);
+      scene = buildSceneReport(state.activeScene, end.name, parts, steps);
+    } catch {
+      scene = null;
     }
-    scene = buildSceneReport(state.activeScene, name, parts, steps);
   }
 
   // 5. DeviceInfo
-  const infoRes = await querySingle(transport, CMD.QUERY_DEVICE_INFO, new Uint8Array([]), next(), DEVICE_CMD.DEVICE_INFO_REPORT, timeout);
-  const deviceInfo = infoRes.ok && infoRes.report ? parseDeviceInfoReport(infoRes.report) : null;
+  const infoRes = await querySingle(
+    transport,
+    CMD.QUERY_DEVICE_INFO,
+    cmdQueryDeviceInfo().payload,
+    next(),
+    DEVICE_CMD.DEVICE_INFO_REPORT,
+    queryOpts,
+  );
+  const deviceInfo = infoRes.ok ? parseDeviceInfoReport(infoRes.tail.payload) : null;
 
   return { state, stripConfig, layout, scene, deviceInfo };
 }
-
-const SCENE_NAME_BYTES_LOCAL = 26;

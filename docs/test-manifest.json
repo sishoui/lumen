@@ -101,6 +101,11 @@
       "covers": "权威重建编排顺序与部分失败降级",
       "ticket": "#13"
     },
+    "miniprogram/tests/readback.test.ts": {
+      "layer": "mp",
+      "covers": "多帧读回收尾帧（#20）：场景名保存后 QueryScene 读回、LayoutListEnd 的 partMask、权威重建读回，以及收尾帧缺失 / seq 不匹配 / 长度不足的错误路径",
+      "ticket": "#20"
+    },
     "miniprogram/tests/reconnect.test.ts": {
       "layer": "mp",
       "covers": "ReconnectSupervisor：1s/2s/4s 退避 + 耗尽",
