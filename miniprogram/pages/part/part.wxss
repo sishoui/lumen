@@ -2,6 +2,8 @@
 .page { padding: 24rpx; }
 
 .part-tabs { white-space: nowrap; padding: 8rpx 0; }
+.slot-actions { display: flex; gap: 12rpx; }
+.slot-actions .button { margin: 0; }
 .part-tab {
   display: inline-block;
   padding: 12rpx 24rpx;

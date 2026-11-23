@@ -3,7 +3,7 @@
  * 供部位编辑器、场景编辑器、测试共同使用，避免业务逻辑散落页面。
  */
 
-import type { LayoutPart, LayoutReadback } from "./protocol/types";
+import type { DeviceInfo, LayoutPart, LayoutReadback } from "./protocol/types";
 import type { EditResult } from "./session/session";
 import { MAX_PARTS, MAX_PART_SEGS, RESULT } from "./protocol/constants";
 
@@ -144,6 +144,72 @@ export function readbackToParts(stripId: number, readback: LayoutReadback | null
     }
   }
   return parts;
+}
+
+/** 设备允许的部位槽位数；deviceInfo 缺失时回退协议常量。 */
+export function partLimit(deviceInfo: DeviceInfo | null): number {
+  return deviceInfo?.maxParts ?? MAX_PARTS;
+}
+
+/** 当前布局是否还能追加部位槽位。 */
+export function canAddPart(parts: LayoutPart[], maxParts: number): boolean {
+  return parts.length < maxParts;
+}
+
+/** 新增槽位的结果：added 带新数组与新槽位编号；rejected 表示已达设备上限。 */
+export type AddPartResult =
+  | { kind: "added"; parts: LayoutPart[]; partId: number }
+  | { kind: "rejected"; reason: string };
+
+/** 追加一个空槽位到末尾；partId 取末尾编号，提交时由 planLayoutCommit 连续重编号。 */
+export function addPartSlot(parts: LayoutPart[], stripId: number, maxParts: number): AddPartResult {
+  if (!canAddPart(parts, maxParts)) {
+    return { kind: "rejected", reason: `部位槽位已达设备上限 ${maxParts} 个` };
+  }
+  const partId = parts.length;
+  return {
+    kind: "added",
+    partId,
+    parts: [
+      ...parts,
+      { stripId, partId, nameLen: 0, name: "", segCount: 0, phase: 0, segs: [] as Array<[number, number]> },
+    ],
+  };
+}
+
+/** 删除槽位的结果：removed 带新数组与新选中槽位；confirm 表示有段需确认；rejected 表示不能删。 */
+export type RemovePartResult =
+  | { kind: "removed"; parts: LayoutPart[]; activePartId: number }
+  | { kind: "confirm"; prompt: string }
+  | { kind: "rejected"; reason: string };
+
+/**
+ * 删除槽位：空槽位直接删，有段槽位需 confirmed=true；删除后 partId 连续重编号。
+ * activePartId 随删除调整，始终落在 0..n−1。
+ */
+export function removePartSlot(
+  parts: LayoutPart[],
+  partId: number,
+  activePartId: number,
+  opts: { confirmed?: boolean } = {},
+): RemovePartResult {
+  const part = parts[partId];
+  if (!part) return { kind: "rejected", reason: `部位槽位 ${partId} 不存在` };
+  if (parts.length <= 1) return { kind: "rejected", reason: "至少保留 1 个部位槽位" };
+  if (part.segs.length > 0 && !opts.confirmed) {
+    const label = part.name || `部位 ${part.partId}`;
+    return {
+      kind: "confirm",
+      prompt: `部位「${label}」已有 ${part.segs.length} 个段，删除后这些段会一并移除，确定删除吗？`,
+    };
+  }
+  const remaining = parts
+    .filter((_p, index) => index !== partId)
+    .map((p, index) => ({ ...p, partId: index }));
+  const nextActive = activePartId > partId
+    ? activePartId - 1
+    : Math.min(activePartId, remaining.length - 1);
+  return { kind: "removed", parts: remaining, activePartId: nextActive };
 }
 
 /**

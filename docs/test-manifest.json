@@ -170,13 +170,18 @@
     },
     "miniprogram/tests/part-editor.test.ts": {
       "layer": "mp",
-      "covers": "部位编辑器（引脚分区）：段互斥校验、布局往返（MockTransport LayoutCommit）、相位模式、灯珠占用判断、readbackToParts、断层提交连续重编号读回、提交后会话 State 刷新、读回失败提示",
-      "ticket": "#引脚分区/#23"
+      "covers": "部位编辑器（引脚分区）：段互斥校验、布局往返（MockTransport LayoutCommit）、相位模式、灯珠占用判断、readbackToParts、断层提交连续重编号读回、提交后会话 State 刷新、读回失败提示、槽位增删（上限来自 deviceInfo.maxParts、空槽直删、有段需确认、删除后选中范围、增删后提交读回）",
+      "ticket": "#引脚分区/#23/#24"
     },
     "scripts/user-flows/issue-23.mjs": {
       "layer": "ui",
       "covers": "工单 #23 用户流程：清空部位 0 保留部位 1 后提交，页面立即显示重编号的 1 个部位，返回再进入读回名字/段仍一致",
       "ticket": "#23"
+    },
+    "scripts/user-flows/issue-24.mjs": {
+      "layer": "ui",
+      "covers": "工单 #24 用户流程：部位槽位增删——删空槽位缩到 1、新增回 2 并给新槽位画段、提交读回 2 个连续编号槽位、场景编辑器看到新部位、重进后空槽位直接删、有段槽位取消不删确认才删、提交读回 1 个槽位",
+      "ticket": "#24"
     },
     "miniprogram/tests/scene-editor.test.ts": {
       "layer": "mp",

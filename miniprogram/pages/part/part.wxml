@@ -13,8 +13,13 @@
     <!-- 部位切换 -->
     <view class="card">
       <view class="row">
-        <text class="label">部位（{{partCount}} 个槽位）</text>
+        <text class="label">部位（{{partCount}}/{{maxParts}} 个槽位）</text>
+        <view class="slot-actions">
+          <view class="button secondary small {{canAdd ? '' : 'disabled'}}" bindtap="onAddPartTap">新增槽位</view>
+          <view class="button danger small" bindtap="onDeletePartTap">删除当前</view>
+        </view>
       </view>
+      <view wx:if="{{!canAdd}}" class="hint">已达设备上限 {{maxParts}} 个部位槽位</view>
       <scroll-view scroll-x class="part-tabs">
         <view wx:for="{{parts}}" wx:key="partId"
           class="part-tab {{activePartId === item.partId ? 'active' : ''}}"
@@ -46,7 +51,7 @@
     <!-- 段列表 -->
     <view class="card">
       <view class="row">
-        <text class="label">段（{{segs.length}}/{{8}}）</text>
+        <text class="label">段（{{segs.length}}/{{maxPartSegs}}）</text>
         <view class="button secondary small" bindtap="onClearSegs">清空</view>
       </view>
       <view wx:if="{{segs.length === 0}}" class="hint">未分配段——在方格上拖选添加</view>

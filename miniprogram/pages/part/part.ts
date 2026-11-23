@@ -2,11 +2,21 @@
 
 import { getSession } from "../../utils/session/singleton";
 import {
-  isLedOccupied, validateSegment, validateLayout, formatSegs, formatRange,
+  validateSegment, validateLayout, formatRange,
   readbackToParts, planLayoutCommit, layoutCommitFeedback,
+  partLimit, canAddPart, addPartSlot, removePartSlot,
 } from "../../utils/part-editor";
 import { PHASE, MAX_PARTS, MAX_PART_SEGS } from "../../utils/protocol/constants";
 import type { LayoutPart } from "../../utils/protocol/types";
+
+/** 根 tsconfig 未引入小程序类型（基线红），这里只声明页面用到的 wx API。 */
+declare const wx: {
+  showModal(options: {
+    title?: string;
+    content: string;
+    success?: (res: { confirm: boolean; cancel: boolean }) => void;
+  }): void;
+};
 
 /** 单颗灯珠的显示状态。 */
 interface LedCell {
@@ -22,6 +32,11 @@ Page({
     ledCount: 60,
     parts: [] as LayoutPart[],
     partCount: 1,
+    /** 设备允许的部位槽位数与每部位段数（deviceInfo 缺失时回退协议常量） */
+    maxParts: MAX_PARTS,
+    maxPartSegs: MAX_PART_SEGS,
+    /** 是否还能新增槽位 */
+    canAdd: true,
     /** 当前编辑的部位索引 */
     activePartId: 0,
     /** 段列表（用于当前部位） */
@@ -74,12 +89,18 @@ Page({
       readbackOk ? res.layout : (session.layout[this.data.stripId] ?? null),
       Math.max(partCount, 1),
     );
+    const deviceInfo = session.deviceInfo;
+    const maxParts = partLimit(deviceInfo);
+    const maxPartSegs = deviceInfo?.maxPartSegs ?? MAX_PART_SEGS;
     const activePartId = 0;
     const activePart = parts[activePartId];
     this.setData({
       ledCount,
       parts,
-      partCount: Math.max(partCount, 1),
+      partCount: parts.length,
+      maxParts,
+      maxPartSegs,
+      canAdd: canAddPart(parts, maxParts),
       activePartId,
       segs: activePart.segs,
       phase: activePart.phase,
@@ -88,6 +109,59 @@ Page({
     });
     this.renderLedCells();
     return readbackOk;
+  },
+
+  /** 增删槽位后统一刷新槽位、当前部位字段与新增按钮状态。 */
+  applyParts(parts: LayoutPart[], activePartId: number, hint: string) {
+    const active = parts[activePartId] ?? parts[0];
+    this.setData({
+      parts,
+      partCount: parts.length,
+      canAdd: canAddPart(parts, this.data.maxParts),
+      activePartId: active.partId,
+      segs: active.segs,
+      phase: active.phase,
+      partName: active.name,
+      selecting: null,
+      selectStart: -1,
+      hint,
+    });
+    this.renderLedCells();
+  },
+
+  /** 新增槽位：追加到末尾并选中它。 */
+  onAddPartTap() {
+    const added = addPartSlot(this.data.parts, this.data.stripId, this.data.maxParts);
+    if (added.kind === "rejected") {
+      this.setData({ hint: added.reason });
+      return;
+    }
+    this.applyParts(added.parts, added.partId, `已新增槽位 ${added.partId}`);
+  },
+
+  /** 删除当前槽位：空槽位直接删，有段槽位先确认。 */
+  onDeletePartTap() {
+    const partId = this.data.activePartId;
+    const plan = removePartSlot(this.data.parts, partId, partId);
+    if (plan.kind === "rejected") {
+      this.setData({ hint: plan.reason });
+      return;
+    }
+    if (plan.kind === "removed") {
+      this.applyParts(plan.parts, plan.activePartId, `已删除槽位 ${partId}`);
+      return;
+    }
+    wx.showModal({
+      title: "删除部位槽位",
+      content: plan.prompt,
+      success: (res) => {
+        if (!res.confirm) return;
+        const done = removePartSlot(this.data.parts, partId, this.data.activePartId, { confirmed: true });
+        if (done.kind === "removed") {
+          this.applyParts(done.parts, done.activePartId, `已删除槽位 ${partId}`);
+        }
+      },
+    });
   },
 
   /** 渲染灯珠方格。 */
@@ -125,17 +199,8 @@ Page({
   onPartTap(e: any) {
     const partId = e.currentTarget.dataset.part as number;
     const parts = this.data.parts;
-    if (partId < 0 || partId >= parts.length) return;
-    const p = parts[partId];
-    this.setData({
-      activePartId: partId,
-      segs: p.segs,
-      phase: p.phase,
-      partName: p.name,
-      selecting: null,
-      selectStart: -1,
-    });
-    this.renderLedCells();
+    if (!parts[partId]) return;
+    this.applyParts(parts, partId, "");
   },
 
   /** 灯珠方格点击：开始/结束选段。 */
@@ -170,8 +235,8 @@ Page({
       this.renderLedCells();
       return;
     }
-    if (segs.length >= MAX_PART_SEGS) {
-      this.setData({ hint: `段数已达上限 ${MAX_PART_SEGS}` });
+    if (segs.length >= this.data.maxPartSegs) {
+      this.setData({ hint: `段数已达上限 ${this.data.maxPartSegs}` });
       this.setData({ selecting: null, selectStart: -1 });
       this.renderLedCells();
       return;
