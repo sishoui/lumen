@@ -27,6 +27,13 @@ Component({
     },
   },
 
+  // 面板随控制页常驻；会话重建（演示模式开关、模式切换）不会让组件重新 attached。
+  pageLifetimes: {
+    show() {
+      this.refresh();
+    },
+  },
+
   methods: {
     /** 取当前会话的公开日志源；绑定追加监听；切换会话后旧监听自动失效。 */
     bindLog() {
@@ -48,9 +55,20 @@ Component({
     },
 
     refresh() {
-      const log = this._log;
-      if (!log) return;
-      const snapshot = log.snapshot();
+      // 会话重建后 logSource 会换一份 FrameLog，而组件仍 attached：
+      // 只在 refresh 时改绑，面板才不会继续读旧会话的日志。
+      const log = getSession().logSource;
+      if (log !== this._log) {
+        this.unbindLog();
+        this._log = log;
+        this.setData({ capacity: log.capacity });
+        this._off = log.onAppend(() => {
+          if (!this.data.paused) this.refresh();
+        });
+      }
+      const bound = this._log;
+      if (!bound) return;
+      const snapshot = bound.snapshot();
       this.setData({
         entries: snapshot.map((e) => ({
           id: e.id,
@@ -59,7 +77,7 @@ Component({
           commandName: e.commandName ?? "",
           hex: e.hex,
         })),
-        capacity: log.capacity,
+        capacity: bound.capacity,
       });
     },
 
