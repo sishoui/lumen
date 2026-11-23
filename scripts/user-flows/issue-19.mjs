@@ -9,7 +9,7 @@
  * 缺端口 / 缺 automator → 单行 SKIPPED 并 exit 0；断言失败 exit 1。
  */
 
-import { connect, createDriver, createRecorder, sleep } from "./harness.mjs";
+import { connect, createDriver, createRecorder, resetLogPanel, sleep } from "./harness.mjs";
 
 const conn = await connect();
 if (conn.skipped) {
@@ -70,13 +70,15 @@ try {
   );
   recorder.rec("C1 连点版本号唤出日志面板", panelVisible === true, `logVisible=${await driver.dataGet("logVisible")}`);
 
-  // 先清空面板再触发一条已知命令，避免连接重建的日志被环形缓冲裁掉后
+  // 复位日志面板：控制页常驻组件，paused 状态可能从上一个脚本残留。
+  // 助手确保面板打开、paused=false、entries=[]，并断言起始 paused===false。
+  await resetLogPanel(driver, recorder);
+
+  // 触发一条已知命令，避免连接重建的日志被环形缓冲裁掉后
   // 出现「RX 没有对应 TX」的假失败。
-  const cleared = await driver.componentCall("#frame-log", "onClear");
-  await sleep(300);
   await driver.call("onSelfTestTap");
   await sleep(800);
-  recorder.rec("C1b 清空后触发一条自检命令", cleared.ok === true, cleared.error ?? "SelfTest");
+  recorder.rec("C1b 清空后触发一条自检命令", true, "SelfTest");
 
   const entries =
     (await driver.waitFor(

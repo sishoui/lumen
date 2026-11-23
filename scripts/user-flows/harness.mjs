@@ -216,6 +216,84 @@ export function createDriver(mp) {
   return { pageData, dataGet, call, componentData, componentCall, curRoute, waitForRoute, switchTab, waitFor };
 }
 
+/**
+ * 日志面板重置：控制页的 #frame-log 是常驻组件，paused 状态跨脚本残留。
+ * 打开面板（必要时连点版本号）→ 必要时 onPause 复位 → onClear 清空 → 断言 paused=false 且 entries=[]。
+ *
+ * 失败时抛 Error（由调用方 try/catch 记为 FAIL），不静默吞掉。
+ * 选项：
+ *   { verifyEmpty: true }    断言 entries.length===0（默认）
+ *   { verifyEmpty: false }   只复位 paused，不要求清空（默认不传时等价于 true）
+ */
+export async function resetLogPanel(
+  driver,
+  recorder,
+  { verifyEmpty = true, versionTaps = 6, panelSelector = "#frame-log" } = {},
+) {
+  const rec = recorder.rec;
+
+  // 1. 确保面板打开：连点版本号触发页面的 onVersionTap
+  if ((await driver.dataGet("logVisible")) !== true) {
+    for (let i = 0; i < versionTaps; i += 1) {
+      await driver.call("onVersionTap");
+      await sleep(120);
+    }
+    await driver.waitFor(async () => (await driver.dataGet("logVisible")) === true, { timeoutMs: 2500 });
+  }
+  const visible = await driver.dataGet("logVisible");
+  if (visible !== true) {
+    const msg = `resetLogPanel: 连点版本号后面板仍未打开（logVisible=${visible}）`;
+    rec("resetLogPanel 打开面板", false, msg);
+    throw new Error(msg);
+  }
+
+  // 2. 必要时 onPause 复位：读取组件 paused，为 true 时切回 false
+  let panel = await driver.componentData(panelSelector);
+  if (panel && panel.paused === true) {
+    await driver.componentCall(panelSelector, "onPause");
+    const resumed = await driver.waitFor(
+      async () => {
+        const d = await driver.componentData(panelSelector);
+        return d && d.paused === false ? d : null;
+      },
+      { timeoutMs: 3000 },
+    );
+    if (!resumed) {
+      const d = await driver.componentData(panelSelector);
+      const msg = `resetLogPanel: onPause 复位后 paused 仍为 ${d?.paused}`;
+      rec("resetLogPanel 复位 paused", false, msg);
+      throw new Error(msg);
+    }
+  }
+
+  // 3. 清空日志
+  await driver.componentCall(panelSelector, "onClear");
+  await sleep(300);
+  await driver.waitFor(
+    async () => {
+      const d = await driver.componentData(panelSelector);
+      return d && Array.isArray(d.entries) && d.entries.length === 0 ? d : null;
+    },
+    { timeoutMs: 3000 },
+  );
+
+  // 4. 断言
+  const final = await driver.componentData(panelSelector);
+  const paused = final?.paused;
+  const entriesLen = final && Array.isArray(final.entries) ? final.entries.length : -1;
+  if (paused !== false) {
+    const msg = `resetLogPanel: 期望 paused=false，实际 paused=${paused}`;
+    rec("resetLogPanel paused=false", false, msg);
+    throw new Error(msg);
+  }
+  if (verifyEmpty && entriesLen !== 0) {
+    const msg = `resetLogPanel: 期望 entries=[]，实际 entries.length=${entriesLen}`;
+    rec("resetLogPanel entries 为空", false, msg);
+    throw new Error(msg);
+  }
+  return final;
+}
+
 export function createRecorder({ log = console.log } = {}) {
   let pass = 0;
   const failures = [];

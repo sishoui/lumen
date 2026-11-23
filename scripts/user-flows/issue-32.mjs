@@ -18,7 +18,7 @@
  * 没有自动化端口 / automator 时打印单行 SKIPPED 并 exit 0。
  */
 
-import { connect, createDriver, createRecorder, sleep } from "./harness.mjs";
+import { connect, createDriver, createRecorder, resetLogPanel, sleep } from "./harness.mjs";
 
 const conn = await connect();
 if (conn.skipped) {
@@ -67,9 +67,15 @@ async function main() {
   );
   rec("B1 连点版本号唤出日志面板", panelVisible === true, `logVisible=${await dataGet("logVisible")}`);
 
-  // 先清空，避免连接重建的日志混进来干扰顺序断言。
-  await componentCall("#frame-log", "onClear");
-  await sleep(300);
+  // §B/§C 之前复位日志面板：控制页常驻组件，paused 状态可能从上一个脚本残留。
+  // 助手确保打开、paused=false、entries=[]，并断言起始 paused===false。
+  await resetLogPanel(driver, recorder);
+  const startPanel = await componentData("#frame-log");
+  rec(
+    "B2 起始 paused=false 且 entries=[]",
+    startPanel?.paused === false && Array.isArray(startPanel?.entries) && startPanel.entries.length === 0,
+    `paused=${startPanel?.paused} entries=${startPanel?.entries?.length}`,
+  );
 
   console.log("\n=== §C 触发自检 → 断言 TX/RX 与命令名 ===");
   await call("onSelfTestTap");
@@ -148,11 +154,25 @@ async function main() {
   );
 
   console.log("\n=== §E 暂停 / 恢复 ===");
+  // 进入暂停前确保未暂停（前面 resetLogPanel 已断言，这里再读一次明确起始状态）。
+  const prePause = await componentData("#frame-log");
+  rec(
+    "E0 暂停前 paused=false",
+    prePause?.paused === false,
+    `paused=${prePause?.paused} entries=${prePause?.entries?.length}`,
+  );
+
   await componentCall("#frame-log", "onPause");
   await sleep(200);
-  const beforePauseCount = (await componentData("#frame-log"))?.entries?.length ?? 0;
+  const paused = await componentData("#frame-log");
+  const beforePauseCount = paused?.entries?.length ?? 0;
   rec(
-    "E1 暂停中面板仍显示当前条目",
+    "E1 onPause 后 paused=true",
+    paused?.paused === true,
+    `paused=${paused?.paused}`,
+  );
+  rec(
+    "E1b 暂停中面板仍显示当前条目",
     beforePauseCount > 0,
     `entries=${beforePauseCount}`,
   );
@@ -161,13 +181,22 @@ async function main() {
   await sleep(1200);
   const duringPause = await componentData("#frame-log");
   rec(
-    "E2 暂停中触发命令后面板条目不增长",
-    duringPause && Array.isArray(duringPause.entries) && duringPause.entries.length === beforePauseCount,
-    `before=${beforePauseCount} during=${duringPause?.entries?.length}`,
+    "E2 暂停中触发命令后面板条目冻结",
+    duringPause?.paused === true &&
+      Array.isArray(duringPause.entries) &&
+      duringPause.entries.length === beforePauseCount,
+    `paused=${duringPause?.paused} before=${beforePauseCount} during=${duringPause?.entries?.length}`,
   );
 
   // 恢复后 onAppend 触发 refresh，应该能看到暂停期间的新条目。
   await componentCall("#frame-log", "onPause");
+  await sleep(200);
+  const resumed = await componentData("#frame-log");
+  rec(
+    "E3a 再次 onPause 后 paused=false",
+    resumed?.paused === false,
+    `paused=${resumed?.paused}`,
+  );
   const afterResume = await driver.waitFor(
     async () => {
       const data = await componentData("#frame-log");
@@ -176,7 +205,7 @@ async function main() {
     { timeoutMs: 4000 },
   );
   rec(
-    "E3 恢复后能看到暂停期间的新条目",
+    "E3b 恢复后 entries 增加（能看到暂停期间的新条目）",
     Boolean(afterResume),
     `before=${beforePauseCount} after=${afterResume?.length ?? (await componentData("#frame-log"))?.entries?.length}`,
   );
@@ -189,6 +218,11 @@ async function main() {
     "F1 清空后面板条目为 0",
     afterClear && Array.isArray(afterClear.entries) && afterClear.entries.length === 0,
     `entries=${afterClear?.entries?.length}`,
+  );
+  rec(
+    "F1b 清空后 paused 仍 false",
+    afterClear?.paused === false,
+    `paused=${afterClear?.paused}`,
   );
 
   // 清空后新触发的命令应只产生新日志（不依赖旧订阅残留）。
@@ -217,11 +251,13 @@ try {
 } catch (error) {
   rec(`EXCEPTION ${String(error?.message ?? error)}`, false);
 } finally {
-  // 恢复 wx.setClipboardData，避免污染后续脚本。
+  // 恢复 wx.setClipboardData 并清理页面全局变量，避免污染后续脚本 / 手动 re-run 跳过 mock 安装。
   await mp.evaluate(() => {
     if (globalThis.__issue32OrigClipboard) {
       wx.setClipboardData = globalThis.__issue32OrigClipboard;
     }
+    delete globalThis.__issue32Clipboard;
+    delete globalThis.__issue32OrigClipboard;
   }).catch(() => {});
   recorder.printSummary();
   await mp.disconnect().catch(() => {});

@@ -141,15 +141,13 @@ const waitUntil = async (predicate, timeoutMs = 6000, intervalMs = 200) => {
   return false;
 };
 
-/** DOM 级：元素是否存在（真实 WXML 渲染）。 */
+/** DOM 级：元素是否存在（真实 WXML 渲染）。
+ * page.$ 找不到元素返回 null/false；选择器/automator 异常直接抛出，
+ * 不得静默吞掉并返回 false（否则「隐藏」断言会在异常时假绿）。 */
 const domExists = async (selector) => {
-  try {
-    const page = await mp.currentPage();
-    const node = await page.$(selector);
-    return node !== null && node !== undefined;
-  } catch {
-    return false;
-  }
+  const page = await mp.currentPage();
+  const node = await page.$(selector);
+  return node !== null && node !== undefined;
 };
 
 const optionIndex = async (dataKey, label) => {
@@ -165,6 +163,7 @@ const fieldsAllFalse = (fields) => fields
 /* ===================================================================
  * §A 演示模式连接 → 场景编辑器
  * =================================================================== */
+try {
 console.log("\n=== §A 进入场景编辑器 ===");
 {
   await mp.switchTab("/pages/device/device").catch(() => {});
@@ -317,6 +316,9 @@ console.log("\n=== §D 叠加层空层往返 ===");
     ? await dataGet("steps.0.layer1.type")
     : undefined;
   rec("D7 重新进入仍读回空层", reentered && readback === 255, `readback=${readback}`);
+}
+} catch (error) {
+  rec(`EXCEPTION ${String(error?.message ?? error)}`, false);
 }
 
 console.log(`\n===== ${pass} passed / ${fail} failed =====`);

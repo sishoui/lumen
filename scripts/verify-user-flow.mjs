@@ -18,6 +18,8 @@ import net from "node:net";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { createDriver, createRecorder, resetLogPanel } from "./user-flows/harness.mjs";
+
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(HERE, "..");
 
@@ -394,6 +396,12 @@ console.log("\n=== §E 日志面板 ===");
   }
   await sleep(500);
   rec("E1 连点版本号唤出日志", (await dataGet("logVisible")) === true, `logVisible=${await dataGet("logVisible")}`);
+
+  // 复位 paused：控制页常驻组件的 paused 会跨脚本残留，verify-user-flow 只要求
+  // 打开面板，不要求 entries 为空，所以 verifyEmpty:false。至少不留下暂停态。
+  const driver = createDriver(mp);
+  const recorder = createRecorder({ log: () => {} });
+  await resetLogPanel(driver, recorder, { verifyEmpty: false });
 }
 
 /* ===================================================================
