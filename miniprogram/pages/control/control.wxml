@@ -22,12 +22,23 @@
     <view class="card">
       <view class="row">
         <text class="label">链开关与灯珠数</text>
+        <text class="value">1–{{maxLeds}} 颗</text>
       </view>
-      <view wx:for="{{stripRows}}" wx:key="stripId" class="row">
+      <view class="hint">点链行进入该链的部位编辑器</view>
+      <view wx:for="{{stripRows}}" wx:key="stripId" class="row strip-row"
+        bindtap="onPartEditorTap" data-strip="{{item.stripId}}">
         <text class="label">链 {{item.stripId}}</text>
-        <text class="value">{{item.ledCount}} 颗</text>
-        <switch checked="{{item.on}}" bindchange="onStripPowerChange" data-strip="{{item.stripId}}" />
+        <view class="led-edit" catchtap="noop">
+          <input class="led-input" type="number" value="{{item.ledDraft}}"
+            data-strip="{{item.stripId}}" bindinput="onLedCountInput"
+            bindblur="onLedCountBlur" bindconfirm="onLedCountConfirm" />
+          <text class="value">颗</text>
+        </view>
+        <view catchtap="noop">
+          <switch checked="{{item.on}}" bindchange="onStripPowerChange" data-strip="{{item.stripId}}" />
+        </view>
       </view>
+      <view wx:if="{{hint}}" class="hint">{{hint}}</view>
     </view>
 
     <view class="card">

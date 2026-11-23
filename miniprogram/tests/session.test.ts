@@ -112,6 +112,30 @@ describe("ControlSession", () => {
     expect(session.layout[0]?.parts.length).toBeGreaterThan(0);
   });
 
+  it("setLedCount 往返：链 0 设 50、链 1 设 40，State 读回一致", async () => {
+    const transport = new MockTransport({ scenario: "normal" });
+    const session = new ControlSession({ transport, storage });
+    const desk = MOCK_DEVICES[0];
+    await session.connect(desk.deviceId, desk.broadcastName);
+
+    const r0 = await session.setLedCount(0, 50);
+    expect(r0.kind, `链 0 设置应成功，实际 ${JSON.stringify(r0)}`).toBe("ok");
+    expect(r0.kind === "ok" ? r0.state?.stripLedCounts[0] : undefined, "ACK 后读回的 State 应为 50").toBe(50);
+    expect(session.deviceState?.stripLedCounts[0], "链 0 会话 State 读回 50").toBe(50);
+
+    const r1 = await session.setLedCount(1, 40);
+    expect(r1.kind, `链 1 设置应成功，实际 ${JSON.stringify(r1)}`).toBe("ok");
+    expect(session.deviceState?.stripLedCounts[1], "链 1 会话 State 读回 40").toBe(40);
+
+    // 链选择：部位编辑器以 stripId=1 读取该链
+    const layout1 = await session.queryLayout(1);
+    expect(layout1.kind, "链 1 布局查询应成功").toBe("ok");
+    if (layout1.kind === "ok") {
+      expect(layout1.layout.stripId, "读回属于链 1").toBe(1);
+      expect(layout1.layout.parts.length, "链 1 的部位应非空").toBeGreaterThan(0);
+    }
+  });
+
   it("offline 场景 connect 失败", async () => {
     const transport = new MockTransport({ scenario: "offline" });
     const session = new ControlSession({ transport, storage });

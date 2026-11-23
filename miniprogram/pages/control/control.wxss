@@ -1,1 +1,12 @@
 /* 控制页样式（骨架）。 */
+
+.strip-row { gap: 12rpx; }
+.strip-row .label { flex: 1; }
+
+.led-edit { display: flex; align-items: center; gap: 8rpx; }
+.led-input {
+  width: 96rpx;
+  font-size: 28rpx;
+  text-align: center;
+  border-bottom: 1rpx solid #d1d1d6;
+}

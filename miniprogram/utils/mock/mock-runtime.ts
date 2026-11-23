@@ -18,6 +18,7 @@
 import {
   MAX_SCENES,
   MAX_STRIPS,
+  MAX_LEDS,
   MAX_PARTS,
   MAX_PART_SEGS,
   MAX_STEPS,
@@ -202,7 +203,8 @@ export class MockDeviceRuntime {
         if (payload.length !== 3) { result = RESULT.INVALID_PARAM; break; }
         const stripId = payload[0];
         const count = payload[1] | (payload[2] << 8);
-        if (stripId >= MAX_STRIPS || count < 1 || count > 100) {
+        // 与固件 dispatch_set_led_count 同形：未分配的链与不存在的链一样拒绝
+        if (stripId >= this.stripCount || stripId >= MAX_STRIPS || count < 1 || count > MAX_LEDS) {
           result = RESULT.INVALID_PARAM;
           break;
         }

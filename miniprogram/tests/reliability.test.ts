@@ -393,6 +393,32 @@ describe("多帧读回可靠性", () => {
     expect(transport.sent.filter((r) => r.command === CMD.SET_POWER).length).toBe(2);
   });
 
+  it("SetLedCount 遇 Busy 重试一次，仍 Busy 时返回 ack-error", async () => {
+    const base = makeRebuildResponder(() => undefined);
+    const transport = new ScriptedTransport(idleState(), (request, emit) => {
+      if (request.command === CMD.SET_LED_COUNT) {
+        emit(ackFrame(request, RESULT.BUSY));
+        return;
+      }
+      base(request, emit);
+    });
+    const session = new ControlSession({ transport, storage: createMemoryStorage() });
+    await session.connect("scripted");
+
+    const result = await session.setLedCount(0, 50);
+    const ledRequests = transport.sent.filter((r) => r.command === CMD.SET_LED_COUNT);
+
+    expect(result.kind, "两次 Busy 后应返回 ack-error").toBe("ack-error");
+    if (result.kind === "ack-error") {
+      expect(result.ack.resultCode).toBe(RESULT.BUSY);
+    }
+    expect(ledRequests.length, `应发送 2 次（原发 + 1 次重试），实际 ${ledRequests.length}`).toBe(2);
+    expect(
+      ledRequests[1].seq,
+      `重试应复用同一 seq，实际 ${ledRequests[0].seq} → ${ledRequests[1].seq}`,
+    ).toBe(ledRequests[0].seq);
+  });
+
   it("连续量（亮度）遇到 Busy 不重试", async () => {
     vi.useFakeTimers();
     const base = makeRebuildResponder(() => undefined);

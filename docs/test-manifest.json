@@ -110,8 +110,8 @@
     },
     "miniprogram/tests/reliability.test.ts": {
       "layer": "mp",
-      "covers": "多帧读回可靠性（#21）：72 帧延迟报告（8 部位 × 8 步）、跨 seq / 坏 CRC 帧过滤、ACK 600ms 与报告 5000ms 两段超时（可注入）、重建进命令泵的串行顺序、QueryStripConfig 单条 0x1C、离散命令 Busy 重试一次与连续量不重试",
-      "ticket": "#21"
+      "covers": "多帧读回可靠性（#21）：72 帧延迟报告（8 部位 × 8 步）、跨 seq / 坏 CRC 帧过滤、ACK 600ms 与报告 5000ms 两段超时（可注入）、重建进命令泵的串行顺序、QueryStripConfig 单条 0x1C、离散命令 Busy 重试一次（SetPower 与 SetLedCount）与连续量不重试",
+      "ticket": "#21/#25"
     },
     "scripts/user-flows/issue-20-21.mjs": {
       "layer": "ui",
@@ -125,8 +125,8 @@
     },
     "miniprogram/tests/session.test.ts": {
       "layer": "mp",
-      "covers": "会话全链路（MockTransport）：connect → 重建 → 命令 → disconnect",
-      "ticket": "#13"
+      "covers": "会话全链路（MockTransport）：connect → 重建 → 命令 → disconnect；SetLedCount 往返（链 0 = 50、链 1 = 40，ACK 与 State 读回一致）与按 stripId 读回该链布局",
+      "ticket": "#13/#25"
     },
     "miniprogram/tests/throttle.test.ts": {
       "layer": "mp",
@@ -173,6 +173,11 @@
       "covers": "部位编辑器（引脚分区）：段互斥校验、布局往返（MockTransport LayoutCommit）、相位模式、灯珠占用判断、readbackToParts、断层提交连续重编号读回、提交后会话 State 刷新、读回失败提示、槽位增删（上限来自 deviceInfo.maxParts、空槽直删、有段需确认、删除后选中范围、增删后提交读回）",
       "ticket": "#引脚分区/#23/#24"
     },
+    "miniprogram/tests/led-count.test.ts": {
+      "layer": "mp",
+      "covers": "每链灯珠数（#25）：planLedCountSet 提交计划（范围内发送 / 与当前值相同不发 / 越界拦截且原因含上限）、ledCountLimit 上限来自注入的 deviceInfo.maxLeds（缺失回退协议常量）、maxLeds=64 的脚本设备只收到 1 条合法 SetLedCount 且 State 读回一致、Mock 拒绝未分配链（与固件同形）",
+      "ticket": "#25"
+    },
     "scripts/user-flows/issue-23.mjs": {
       "layer": "ui",
       "covers": "工单 #23 用户流程：清空部位 0 保留部位 1 后提交，页面立即显示重编号的 1 个部位，返回再进入读回名字/段仍一致",
@@ -182,6 +187,11 @@
       "layer": "ui",
       "covers": "工单 #24 用户流程：部位槽位增删——删空槽位缩到 1、新增回 2 并给新槽位画段、提交读回 2 个连续编号槽位、场景编辑器看到新部位、重进后空槽位直接删、有段槽位取消不删确认才删、提交读回 1 个槽位",
       "ticket": "#24"
+    },
+    "scripts/user-flows/issue-25.mjs": {
+      "layer": "ui",
+      "covers": "工单 #25 用户流程：演示模式连接 → 控制页链 0 灯珠数改 50 失焦提交后 State 读回 50 → 点链 1 行进部位编辑器显示链 1 / 30 颗 / 30 格 → 返回后越界输入 101 被拦截且提示含上限、灯珠数不变；缺自动化端口时 SKIP",
+      "ticket": "#25"
     },
     "miniprogram/tests/scene-editor.test.ts": {
       "layer": "mp",
