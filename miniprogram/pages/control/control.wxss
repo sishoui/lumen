@@ -10,3 +10,24 @@
   text-align: center;
   border-bottom: 1rpx solid #d1d1d6;
 }
+
+/* 场景选择卡：选中态（蓝）与激活态（绿）可区分。 */
+.scene-cards { display: flex; gap: 16rpx; margin: 8rpx 0; }
+.scene-card {
+  flex: 1;
+  padding: 20rpx 0;
+  text-align: center;
+  font-size: 28rpx;
+  border-radius: 12rpx;
+  background: #e5e5ea;
+  color: #1d1d1f;
+}
+.scene-card.active {
+  background: #e8f8ec;
+  color: #248a3d;
+  border: 2rpx solid #34c759;
+}
+.scene-card.selected {
+  background: #007aff;
+  color: #ffffff;
+}

@@ -5,6 +5,8 @@ import { ControlSession } from "../utils/session/session";
 import { MockTransport } from "../utils/ble/mock-transport";
 import { MOCK_DEVICES } from "../utils/mock/mock-devices";
 import { createMemoryStorage } from "./helpers/storage";
+import { decodeFrame } from "../utils/protocol/frame";
+import { CMD } from "../utils/protocol/constants";
 
 /** 轮询到条件成立，最多 timeoutMs；避免固定 sleep 拖慢测试。 */
 async function waitFor(predicate: () => boolean, timeoutMs = 1000): Promise<boolean> {
@@ -141,5 +143,75 @@ describe("ControlSession", () => {
     const session = new ControlSession({ transport, storage });
     const desk = MOCK_DEVICES[0];
     await expect(session.connect(desk.deviceId, desk.broadcastName)).rejects.toThrow();
+  });
+
+  /* ---------------- 场景激活（#30） ---------------- */
+
+  it("activateScene 激活 sceneId=2：State.activeScene 来自设备读回且会话同步", async () => {
+    const transport = new MockTransport({ scenario: "normal" });
+    const session = new ControlSession({ transport, storage });
+    const desk = MOCK_DEVICES[0];
+    await session.connect(desk.deviceId, desk.broadcastName);
+    await waitFor(() => session.deviceInfo !== null);
+
+    const r = await session.activateScene(2);
+    expect(r.kind, `激活场景 2 应成功，实际 ${JSON.stringify(r)}`).toBe("ok");
+    if (r.kind === "ok") {
+      expect(r.state?.activeScene, "State 读回的 activeScene 应为 2").toBe(2);
+    }
+    expect(session.deviceState?.activeScene, "会话 deviceState 与读回一致").toBe(2);
+
+    // 再激活场景 0，读回跟随
+    const back = await session.activateScene(0);
+    expect(back.kind).toBe("ok");
+    expect(session.deviceState?.activeScene, "切回场景 1 后读回 0").toBe(0);
+  });
+
+  it("activateScene 越界在发送前拦截：不发帧、不碰命令泵", async () => {
+    const transport = new MockTransport({ scenario: "normal" });
+    const session = new ControlSession({ transport, storage });
+    const desk = MOCK_DEVICES[0];
+    await session.connect(desk.deviceId, desk.broadcastName);
+    await waitFor(() => session.deviceInfo !== null);
+
+    const frames: Uint8Array[] = [];
+    const original = transport.sendFrame.bind(transport);
+    transport.sendFrame = async (frame: Uint8Array): Promise<void> => {
+      frames.push(frame);
+      return original(frame);
+    };
+
+    const bad = await session.activateScene(3);
+    expect(bad.kind, "场景 3（0 基 id=3）越界应被拦截").toBe("error");
+    if (bad.kind === "error") {
+      expect(bad.message, "拦截原因含允许区间 0..2").toContain("0..2");
+    }
+    expect(frames.length, "越界不得发出任何帧").toBe(0);
+    expect(session.deviceState?.activeScene, "越界不改变激活场景").toBe(0);
+  });
+
+  it("activateScene 命令载荷是单字节 scene_id", async () => {
+    const transport = new MockTransport({ scenario: "normal" });
+    const frames: Uint8Array[] = [];
+    const original = transport.sendFrame.bind(transport);
+    transport.sendFrame = async (frame: Uint8Array): Promise<void> => {
+      frames.push(frame);
+      return original(frame);
+    };
+    const session = new ControlSession({ transport, storage });
+    const desk = MOCK_DEVICES[0];
+    await session.connect(desk.deviceId, desk.broadcastName);
+    await waitFor(() => session.deviceInfo !== null);
+    frames.length = 0;
+
+    const r = await session.activateScene(1);
+    expect(r.kind).toBe("ok");
+    const sent = frames
+      .map((f) => decodeFrame(f))
+      .filter((d) => d.ok && d.command === CMD.ACTIVATE_SCENE);
+    expect(sent.length, `应发出 1 条 ActivateScene，实际 ${sent.length}`).toBe(1);
+    if (sent.length === 1 && sent[0].ok) {
+      expect(Array.from(sent[0].payload), "载荷应为单字节 scene_id=1").toEqual([1]);
+    }
   });
 });

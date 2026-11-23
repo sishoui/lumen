@@ -27,7 +27,8 @@ import {
   cmdScenePart, cmdSceneStep, cmdSceneName,
 } from "../protocol/commands";
 import { decodeFrame, encodeFrame } from "../protocol/frame";
-import { DEVICE_CMD, CMD, REPORT_TIMEOUT_MS, RESULT } from "../protocol/constants";
+import { DEVICE_CMD, CMD, REPORT_TIMEOUT_MS, RESULT, MAX_SCENES } from "../protocol/constants";
+import { ensureSceneIdInRange } from "../scene-select";
 import { rebuildFromDevice } from "./rebuild";
 import { queryMultiFrame, querySingle } from "./query";
 import { ReconnectSupervisor } from "./reconnect";
@@ -341,6 +342,9 @@ export class ControlSession {
   }
 
   activateScene(sceneId: number): Promise<CommandResult> {
+    // 越界在发送前拦截：会话层能力未知时回退协议常量（设备能力由页面校准）。
+    const rangeError = ensureSceneIdInRange(sceneId, this.latestDeviceInfo?.maxScenes ?? MAX_SCENES);
+    if (rangeError) return Promise.resolve({ kind: "error", message: rangeError });
     return this.enqueue(() => this.runCommand(CMD.ACTIVATE_SCENE, cmdActivateScene(sceneId).payload));
   }
 

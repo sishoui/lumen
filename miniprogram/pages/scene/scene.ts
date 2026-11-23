@@ -2,6 +2,10 @@
 
 import { getSession } from "../../utils/session/singleton";
 import {
+  sceneCountLimit, sceneOptions, sceneSelection, scenePartKeyFor,
+} from "../../utils/scene-select";
+import type { SceneOption } from "../../utils/scene-select";
+import {
   formatDuration, formatLayer, effectLabel,
   layerPickerOptions, pickerIndexToType, pickerIndexForType, layerFieldVisibility,
   normalizeLayer, switchEffectType, prepareLayersForSave,
@@ -60,6 +64,10 @@ interface ScenePageData {
 Page({
   data: {
     sceneId: 0,
+    /** 顶部场景选择器（1..maxScenes，来自设备能力）。 */
+    sceneOptions: [] as SceneOption[],
+    /** 顶部选择器的下标（场景 id 与下标同值）。 */
+    selectedSceneIndex: 0,
     sceneName: "",
     /** 部位列表（来自布局） */
     parts: [] as ScenePartRow[],
@@ -116,8 +124,29 @@ Page({
 
   onLoad(query: Record<string, string>) {
     const sceneId = parseInt(query.sceneId ?? "0", 10);
-    this.setData({ sceneId: Number.isFinite(sceneId) ? sceneId : 0 });
+    const maxScenes = sceneCountLimit(getSession().deviceInfo);
+    const selection = sceneSelection(maxScenes, Number.isFinite(sceneId) ? sceneId : 0, null);
+    this.setData({
+      sceneId: selection.selectedSceneId,
+      sceneOptions: sceneOptions(maxScenes),
+      selectedSceneIndex: selection.selectedSceneId,
+    });
     this.loadScene();
+  },
+
+  /** 顶部切换场景：重载名字/时间轴/部位，activeStepIndex 回到 0，部位归属按纯函数校正。 */
+  onSceneSwitch(e: any) {
+    const index = Number(e?.detail?.value);
+    if (!Number.isInteger(index)) return;
+    const maxScenes = sceneCountLimit(getSession().deviceInfo);
+    const selection = sceneSelection(maxScenes, index, this.data.sceneId);
+    this.setData({
+      sceneId: selection.selectedSceneId,
+      selectedSceneIndex: selection.selectedSceneId,
+      loading: true,
+      activeStepIndex: 0,
+    });
+    void this.loadScene();
   },
 
   async loadScene() {
@@ -162,7 +191,12 @@ Page({
       this.setData({ hint: "没有布局部位，请先在部位编辑器划分", loading: false });
       return;
     }
-    const activeKey = `${parts[0].stripId}:${parts[0].partId}`;
+    // 切换场景后当前部位若不存在则回退第一个；首次加载默认第一个。
+    const prevKeys = (this.data.parts as ScenePartRow[]).map((p) => `${p.stripId}:${p.partId}`);
+    const nextKeys = parts.map((p) => `${p.stripId}:${p.partId}`);
+    const activeKey = this.data.parts.length === 0
+      ? nextKeys[0]
+      : scenePartKeyFor(prevKeys, this.data.activeKey, nextKeys, nextKeys[0]);
     this.setData({ parts, activeKey, loading: false });
     this.loadSteps();
   },

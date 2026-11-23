@@ -44,13 +44,21 @@
     <view class="card">
       <view class="row">
         <text class="label">场景</text>
-        <text class="value">当前 {{state.activeScene + 1}}</text>
+        <text class="value">当前 {{activeSceneId >= 0 ? activeSceneId + 1 : '—'}}</text>
+      </view>
+      <view class="scene-cards">
+        <view wx:for="{{sceneOptions}}" wx:key="id"
+          class="scene-card {{item.cls}}"
+          bindtap="onSceneSelectTap" data-scene="{{item.id}}">
+          {{item.label}}
+        </view>
       </view>
       <view class="row">
-        <view class="button" bindtap="onPartEditorTap">部位编辑器</view>
-        <view class="button secondary" bindtap="onSceneEditorTap">场景编辑器</view>
+        <view class="button" bindtap="onSceneEditorTap">编辑此场景</view>
+        <view class="button secondary" bindtap="onActivateSceneTap">激活此场景</view>
       </view>
       <view class="row">
+        <view class="button secondary" bindtap="onPartEditorTap">部位编辑器</view>
         <view class="button secondary" bindtap="onSelfTestTap">自检</view>
       </view>
     </view>

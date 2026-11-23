@@ -6,6 +6,17 @@
   </view>
 
   <block wx:else>
+    <!-- 场景切换（1..maxScenes，来自设备能力） -->
+    <view class="card">
+      <view class="row">
+        <text class="label">场景</text>
+        <picker mode="selector" range="{{sceneOptions}}" range-key="label"
+          bindchange="onSceneSwitch" value="{{selectedSceneIndex}}">
+          <view class="picker-text">场景 {{sceneId + 1}}</view>
+        </picker>
+      </view>
+    </view>
+
     <!-- 场景名 + 激活 -->
     <view class="card">
       <view class="row">

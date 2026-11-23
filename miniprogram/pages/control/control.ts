@@ -3,6 +3,8 @@
 import { getSession } from "../../utils/session/singleton";
 import { TapSequence } from "../../utils/ble/log-panel";
 import { ledCountLimit, planLedCountSet } from "../../utils/led-count";
+import { sceneCountLimit, sceneOptions, sceneSelection, sceneOptionClass } from "../../utils/scene-select";
+import type { SceneOption } from "../../utils/scene-select";
 import { MAX_LEDS, resultName } from "../../utils/protocol/constants";
 
 /** 控制页每链行的数据形态；ledDraft 是输入框文本，ledCount 是设备读回值。 */
@@ -20,6 +22,12 @@ Page({
     stripRows: [] as StripRow[],
     /** 单链灯珠数上限（DeviceInfoReport.maxLeds，缺失回退协议常量）。 */
     maxLeds: MAX_LEDS,
+    /** 场景选择卡：选项来自设备能力 maxScenes（缺失回退协议常量）。 */
+    sceneOptions: [] as Array<SceneOption & { active: boolean; cls: string }>,
+    /** 当前选中的场景（0 基）；选中态与激活态分开。 */
+    selectedSceneId: 0,
+    /** 当前激活场景（State.activeScene）；-1 表示未知。 */
+    activeSceneId: -1,
     hint: "",
     firmwareVersion: "—",
     logVisible: false,
@@ -53,11 +61,33 @@ Page({
       });
     }
     const info = session.deviceInfo;
+    this.applySceneSelection();
     this.setData({
       state,
       stripRows,
       maxLeds: ledCountLimit(info),
       firmwareVersion: info ? `${info.firmwareMajor}.${info.firmwareMinor}` : "—",
+    });
+  },
+
+  /** 场景卡按设备能力重算；选择落在能力外时夹到最后一个可用场景。 */
+  applySceneSelection() {
+    const maxScenes = sceneCountLimit(getSession().deviceInfo);
+    const state = getSession().deviceState;
+    const selection = sceneSelection(
+      maxScenes,
+      this.data.selectedSceneId,
+      state ? state.activeScene : -1,
+    );
+    const cards = sceneOptions(maxScenes).map((option) => ({
+      ...option,
+      active: option.id === selection.activeSceneId,
+      cls: sceneOptionClass(option.id, selection),
+    }));
+    this.setData({
+      sceneOptions: cards,
+      selectedSceneId: selection.selectedSceneId,
+      activeSceneId: selection.activeSceneId,
     });
   },
 
@@ -153,13 +183,58 @@ Page({
 
   /* ---------------- 链选择：点链行进该链的部位编辑器 ---------------- */
 
+  /* ---------------- 场景选择与激活（#30） ---------------- */
+
+  /** 点场景卡：只改选中态，不触发任何命令。 */
+  onSceneSelectTap(e: any) {
+    const sceneId = Number(e?.currentTarget?.dataset?.scene as number);
+    if (!Number.isInteger(sceneId) || sceneId < 0) return;
+    const selection = sceneSelection(
+      sceneCountLimit(getSession().deviceInfo),
+      sceneId,
+      this.data.activeSceneId,
+    );
+    this.setData({
+      selectedSceneId: selection.selectedSceneId,
+      sceneOptions: this.data.sceneOptions.map((card: SceneOption & { active: boolean; cls: string }) => ({
+        ...card,
+        cls: sceneOptionClass(card.id, selection),
+      })),
+    });
+  },
+
+  /** 编辑选中的场景：把选择带进编辑器。 */
+  onSceneEditorTap() {
+    wx.navigateTo({ url: `/pages/scene/scene?sceneId=${this.data.selectedSceneId}` });
+  },
+
+  /** 激活选中的场景：成功后刷新 State，高亮随读回的 activeScene 移动。 */
+  onActivateSceneTap() {
+    const sceneId = this.data.selectedSceneId;
+    void getSession().activateScene(sceneId).then((r) => {
+      if (r.kind === "ok") {
+        this.refresh();
+        const readback = getSession().deviceState?.activeScene;
+        const readbackHint = readback == null
+          ? "，未能读回设备状态"
+          : (readback === sceneId ? "" : `，设备当前激活 ${readback + 1}`);
+        this.setData({ hint: `场景 ${sceneId + 1} 已激活${readbackHint}` });
+        return;
+      }
+      this.refresh();
+      if (r.kind === "ack-error") {
+        this.setData({ hint: `激活场景 ${sceneId + 1} 失败：${resultName(r.ack.resultCode)}` });
+      } else if (r.kind === "stale") {
+        this.setData({ hint: "连接已变化，请重试" });
+      } else {
+        this.setData({ hint: `激活场景 ${sceneId + 1} 失败：${r.message}` });
+      }
+    });
+  },
+
   onPartEditorTap(e: any) {
     const stripId = Number(e?.currentTarget?.dataset?.strip ?? 0);
     wx.navigateTo({ url: `/pages/part/part?stripId=${stripId}` });
-  },
-
-  onSceneEditorTap() {
-    wx.navigateTo({ url: "/pages/scene/scene?sceneId=0" });
   },
 
   onSelfTestTap() {

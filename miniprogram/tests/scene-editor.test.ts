@@ -6,10 +6,10 @@ import { ControlSession } from "../utils/session/session";
 import { createMemoryStorage } from "./helpers/storage";
 import { MOCK_DEVICES } from "../utils/mock/mock-devices";
 import {
-  LOOP, EFFECT_TYPE, NO_EFFECT, LAYER_LEVEL_MAX, CMD,
+  LOOP, EFFECT_TYPE, NO_EFFECT, LAYER_LEVEL_MAX, CMD, DEVICE_CMD,
   isValidEffectPeriod,
 } from "../utils/protocol/constants";
-import { decodeFrame } from "../utils/protocol/frame";
+import { decodeFrame, encodeFrame } from "../utils/protocol/frame";
 import { validateNameBytes } from "../utils/name-bytes";
 import type { EffectLayer } from "../utils/protocol/types";
 import {
@@ -18,6 +18,9 @@ import {
   layerFieldVisibility, normalizeLayer, switchEffectType, OVERLAY_DEFAULT_LEVEL,
 } from "../utils/scene-editor";
 import type { SceneStep } from "../utils/protocol/types";
+import {
+  ScriptedTransport, ackFrame, idleState, makeRebuildResponder,
+} from "./helpers/scripted-transport";
 
 describe("场景编辑器", () => {
   it("validateDuration", () => {
@@ -444,5 +447,110 @@ describe("场景名字节上限（#29）", () => {
     expect(check.bytes).toBe(27);
     expect(check.message).toContain("27");
     expect(check.message).toContain("24");
+  });
+});
+
+describe("场景选择与激活（#30）", () => {
+  it("场景 2 保存名字/步骤后 QueryScene(2) 读回一致，场景 1 不受影响", async () => {
+    const transport = new MockTransport({ scenario: "normal" });
+    const session = new ControlSession({ transport, storage: createMemoryStorage() });
+    const desk = MOCK_DEVICES[0];
+    await session.connect(desk.deviceId, desk.broadcastName);
+    await new Promise((r) => setTimeout(r, 50));
+
+    // 场景 2（id=1）设部位头 + 两步
+    const head = await session.scenePart(1, 0, 0, { stepCount: 2, loop: LOOP.ALL, on: true });
+    expect(head.kind, "场景 2 ScenePart 应成功").toBe("ok");
+    const stepA: SceneStep = {
+      sceneId: 1, stripId: 0, partId: 0, stepIndex: 0,
+      durationMs: 3000,
+      layer0: createStaticLayer(1000, 255, 80),
+      layer1: { type: NO_EFFECT, hue: 0, sat: 0, periodMs: 0, p5: 0, flags: 0, level: 0 },
+    };
+    const stepB: SceneStep = { ...stepA, stepIndex: 1, durationMs: 1000 };
+    expect((await session.sceneStep(1, 0, 0, 0, stepA)).kind).toBe("ok");
+    expect((await session.sceneStep(1, 0, 0, 1, stepB)).kind).toBe("ok");
+    expect((await session.sceneName(1, "场景二")).kind).toBe("ok");
+
+    // 场景 2 读回一致
+    const read2 = await session.queryScene(1);
+    expect(read2.kind, "场景 2 查询应成功").toBe("ok");
+    if (read2.kind === "ok") {
+      expect(read2.scene.name, "场景 2 名字读回一致").toBe("场景二");
+      const steps = read2.scene.steps.filter((s) => s.stripId === 0 && s.partId === 0);
+      expect(steps.map((s) => s.stepIndex), "场景 2 步骤索引 [0,1]").toEqual([0, 1]);
+      expect(steps.map((s) => s.durationMs), "场景 2 时长 [3000,1000]").toEqual([3000, 1000]);
+    }
+
+    // 场景 1（id=0）不受影响：名字仍为空（Mock 初始场景名）
+    const read1 = await session.queryScene(0);
+    expect(read1.kind).toBe("ok");
+    if (read1.kind === "ok") {
+      expect(read1.scene.name, "场景 1 名字未被场景 2 的保存污染").not.toBe("场景二");
+      const steps1 = read1.scene.steps.filter((s) => s.stripId === 0 && s.partId === 0);
+      expect(steps1.length, "场景 1 没有场景 2 的步骤").toBe(0);
+    }
+  });
+
+  it("激活场景 2 后 State.activeScene=2（1 基显示），再激活场景 1 读回 0", async () => {
+    const transport = new MockTransport({ scenario: "normal" });
+    const session = new ControlSession({ transport, storage: createMemoryStorage() });
+    const desk = MOCK_DEVICES[0];
+    await session.connect(desk.deviceId, desk.broadcastName);
+    await new Promise((r) => setTimeout(r, 50));
+
+    const r = await session.activateScene(1);
+    expect(r.kind).toBe("ok");
+    expect(session.deviceState?.activeScene, "激活场景 2 后 State.activeScene=1（0 基）").toBe(1);
+
+    const back = await session.activateScene(0);
+    expect(back.kind).toBe("ok");
+    expect(session.deviceState?.activeScene, "切回场景 1 读回 0").toBe(0);
+  });
+
+  it("maxScenes 来自注入的 deviceInfo（=2）：场景 3 被拦截且不发帧，能力内仍可激活", async () => {
+    // ScriptedTransport + 注入 DeviceInfoReport.maxScenes=2 的设备：
+    // 能力来自读回，不是协议常量（同 led-count 的注入模式）。
+    const state = idleState();
+    const base = makeRebuildResponder(() => undefined);
+    const transport = new ScriptedTransport(state, (request, emit) => {
+      if (request.command === CMD.ACTIVATE_SCENE) {
+        const sceneId = request.payload[0];
+        if (sceneId < 2) state.activeScene = sceneId as 0 | 1 | 2;
+        emit(ackFrame(request, sceneId < 2 ? 0 : 1));
+        return;
+      }
+      if (request.command === CMD.QUERY_DEVICE_INFO) {
+        emit(ackFrame(request));
+        const payload = new Uint8Array(15);
+        payload[8] = 100; // maxLeds
+        payload[9] = 8;   // maxStrips
+        payload[10] = 8;  // maxParts
+        payload[11] = 8;  // maxPartSegs
+        payload[12] = 8;  // maxSteps
+        payload[13] = 2;  // maxScenes = 2
+        emit(encodeFrame(DEVICE_CMD.DEVICE_INFO_REPORT, request.seq, payload));
+        return;
+      }
+      base(request, emit);
+    });
+    const session = new ControlSession({ transport, storage: createMemoryStorage() });
+    await session.connect("scripted");
+    await session.queryDeviceInfo(); // 排在重建之后，返回即重建完成
+
+    expect(session.deviceInfo?.maxScenes, "上限应来自注入的 DeviceInfoReport").toBe(2);
+
+    const bad = await session.activateScene(2);
+    expect(bad.kind, "maxScenes=2 时场景 3（id=2）应被拦截").toBe("error");
+    if (bad.kind === "error") {
+      expect(bad.message, "拦截原因含 0..1").toContain("0..1");
+    }
+    const actuateFrames = transport.sent.filter((r) => r.command === CMD.ACTIVATE_SCENE);
+    expect(actuateFrames.length, "越界不得发帧").toBe(0);
+
+    // 能力内仍可用：场景 2（id=1）激活成功且 State 读回
+    const ok = await session.activateScene(1);
+    expect(ok.kind, "能力内场景 2 应可激活").toBe("ok");
+    expect(session.deviceState?.activeScene, "激活场景 2 后读回 1").toBe(1);
   });
 });

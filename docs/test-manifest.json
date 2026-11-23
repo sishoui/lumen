@@ -282,6 +282,16 @@
       "covers": "保存前先校验再归一化（#28）：心跳 period=200 被拒且错误含 500–1500（不被 normalizeLayer 清零吞掉）、心跳 500/1500 通过且 period 保留、呼吸→静态 period=0、熄灭 hue/sat/period 全 0、level 101 被拒、叠加层空层 type=0xFF 全 0",
       "layer": "mp",
       "ticket": "#28"
+    },
+    "miniprogram/tests/scene-select.test.ts": {
+      "layer": "mp",
+      "covers": "场景选择领域工具（#30）：sceneCountLimit 上限来自注入的 deviceInfo.maxScenes（缺失回退协议常量）、sceneOptions 按能力生成 1..N（id 0 基 label 1 基）、sceneSelection 选中与激活独立且越界夹到能力内、ensureSceneIdInRange 越界在发送前拦截（原因含允许区间）、sceneOptionClass 选中态优先于激活态、scenePartKeyFor 切换场景后部位存在则保留否则回退第一个",
+      "ticket": "#30"
+    },
+    "scripts/user-flows/issue-30.mjs": {
+      "layer": "ui",
+      "covers": "L4 用户流程（#30）：演示模式连接 → 控制页 3 个场景卡且场景 1 高亮 → 选场景 2（不触发激活）→ 编辑打开 sceneId=2 → 保存场景名「场景二」+ 一步 → 返回激活场景 2（State.activeScene=2、高亮移动）→ 重进编辑器读回场景二 → 顶部切回场景 1 读回其名字/时间轴且 activeStepIndex 归 0；缺自动化端口时 SKIP",
+      "ticket": "#30"
     }
   }
 }
