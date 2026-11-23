@@ -100,19 +100,19 @@
           <view class="picker-text">{{layer0Label}}</view>
         </picker>
       </view>
-      <view class="row" wx:if="{{layer0Fields.hue}}">
+      <view class="row field field-layer0-hue" wx:if="{{layer0Fields.hue}}">
         <text class="label">色相 hue</text>
         <input class="num-input" type="number" value="{{layer0Hue}}" bindinput="onLayer0HueInput" />
       </view>
-      <view class="row" wx:if="{{layer0Fields.sat}}">
+      <view class="row field field-layer0-sat" wx:if="{{layer0Fields.sat}}">
         <text class="label">饱和度 sat</text>
         <input class="num-input" type="number" value="{{layer0Sat}}" bindinput="onLayer0SatInput" />
       </view>
-      <view class="row" wx:if="{{layer0Fields.period}}">
+      <view class="row field field-layer0-period" wx:if="{{layer0Fields.period}}">
         <text class="label">周期（ms）</text>
         <input class="num-input" type="number" value="{{layer0Period}}" bindinput="onLayer0PeriodInput" />
       </view>
-      <view class="row" wx:if="{{layer0Fields.level}}">
+      <view class="row field field-layer0-level" wx:if="{{layer0Fields.level}}">
         <text class="label">层亮度 level</text>
         <input class="num-input" type="number" value="{{layer0Level}}" bindinput="onLayer0LevelInput" />
       </view>
@@ -128,19 +128,19 @@
           <view class="picker-text">{{layer1Label}}</view>
         </picker>
       </view>
-      <view class="row" wx:if="{{layer1Fields.hue}}">
+      <view class="row field field-layer1-hue" wx:if="{{layer1Fields.hue}}">
         <text class="label">色相 hue</text>
         <input class="num-input" type="number" value="{{layer1Hue}}" bindinput="onLayer1HueInput" />
       </view>
-      <view class="row" wx:if="{{layer1Fields.sat}}">
+      <view class="row field field-layer1-sat" wx:if="{{layer1Fields.sat}}">
         <text class="label">饱和度 sat</text>
         <input class="num-input" type="number" value="{{layer1Sat}}" bindinput="onLayer1SatInput" />
       </view>
-      <view class="row" wx:if="{{layer1Fields.period}}">
+      <view class="row field field-layer1-period" wx:if="{{layer1Fields.period}}">
         <text class="label">周期（ms）</text>
         <input class="num-input" type="number" value="{{layer1Period}}" bindinput="onLayer1PeriodInput" />
       </view>
-      <view class="row" wx:if="{{layer1Fields.level}}">
+      <view class="row field field-layer1-level" wx:if="{{layer1Fields.level}}">
         <text class="label">层亮度 level</text>
         <input class="num-input" type="number" value="{{layer1Level}}" bindinput="onLayer1LevelInput" />
       </view>

@@ -119,6 +119,7 @@ async function main() {
     if (!globalThis.__issue32Clipboard) {
       globalThis.__issue32Clipboard = { text: "" };
       const original = wx.setClipboardData;
+      globalThis.__issue32OrigClipboard = original;
       wx.setClipboardData = (opts) => {
         globalThis.__issue32Clipboard.text = opts?.data ?? "";
         if (typeof original === "function") {
@@ -216,6 +217,12 @@ try {
 } catch (error) {
   rec(`EXCEPTION ${String(error?.message ?? error)}`, false);
 } finally {
+  // 恢复 wx.setClipboardData，避免污染后续脚本。
+  await mp.evaluate(() => {
+    if (globalThis.__issue32OrigClipboard) {
+      wx.setClipboardData = globalThis.__issue32OrigClipboard;
+    }
+  }).catch(() => {});
   recorder.printSummary();
   await mp.disconnect().catch(() => {});
   process.exit(recorder.fail === 0 ? 0 : 1);

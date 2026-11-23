@@ -64,6 +64,7 @@ const backToControl = async () => {
   await d.waitForRoute("pages/control/control");
 };
 
+try {
 console.log("\n=== 工单 #24：部位槽位增删 ===");
 
 /* §A 重置演示会话并连接。 */
@@ -247,3 +248,11 @@ await restoreModal().catch(() => {});
 recorder.printSummary();
 await mp.disconnect().catch(() => {});
 process.exit(recorder.fail === 0 ? 0 : 1);
+} catch (err) {
+  // 任何失败都先恢复 wx.showModal，避免污染后续脚本。
+  await restoreModal().catch(() => {});
+  rec(`EXCEPTION ${String(err?.message ?? err)}`, false);
+  recorder.printSummary();
+  await mp.disconnect().catch(() => {});
+  process.exit(1);
+}

@@ -40,7 +40,9 @@
       ],
       "missingHint": "缺微信开发者工具自动化端口",
       "scan": [
-        "scripts/user-flows/*.mjs"
+        "scripts/user-flows/*.mjs",
+        "scripts/verify-ui.mjs",
+        "scripts/verify-user-flow.mjs"
       ]
     },
     "ble": {
@@ -302,6 +304,16 @@
       "layer": "ui",
       "covers": "L4 用户流程（#31）：演示连接 → 控制页自检 hint 含「自检已开始」→ 切真实模式 mock wx.openBluetoothAdapter 失败 → onScanTap → statusText 含「扫描失败」与可读原因 → 恢复 mock；连接失败仅 L2 覆盖；缺自动化端口时 SKIP",
       "ticket": "#31"
+    },
+    "scripts/verify-user-flow.mjs": {
+      "layer": "ui",
+      "covers": "L4 基线用户流程（#34）：演示会话重置（off→on）后扫描连接 → 控制页整机/亮度 → 部位编辑器画段+命名+提交后 parts/segs 读回一致 → 场景编辑器添加步骤 2000ms 保存后重进读回 → 场景名「我的场景」保存后重进读回 → 激活场景后 State.activeScene 一致 → 连点版本号唤出日志面板；缺自动化端口时 SKIP",
+      "ticket": "#34"
+    },
+    "scripts/verify-ui.mjs": {
+      "layer": "ui",
+      "covers": "L4 渲染回归 runner（#34）：顺序执行 scripts/verify-user-flow.mjs 与 scripts/user-flows/issue-*.mjs（按编号排序），spawnSync 逐个跑，统计 PASS/FAIL 行；缺自动化端口时单行 SKIPPED exit 0；子脚本超时记 FAIL 并继续；末尾汇总行兼容 scripts/test-run.mjs 的 ui 层 parseUiOutput；--probe 保持端口探测",
+      "ticket": "#34"
     }
   }
 }

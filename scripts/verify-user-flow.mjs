@@ -168,12 +168,21 @@ console.log("\n=== §A 设备页：扫描 + 连接 ===");
   await waitForRoute("pages/device/device");
   rec("A1 设备页加载", (await curRoute()) === "pages/device/device", await curRoute());
 
+  // 演示会话重置（off→on）：重建 MockTransport 与设备运行时，确保脚本可重复执行。
+  await call("onMockModeChange", { detail: { value: false } });
+  await sleep(800);
+  await call("onMockModeChange", { detail: { value: true } });
+  await sleep(1200);
+
   // 确保演示模式开（storage 可能残留 false，导致扫不到设备）
   if ((await dataGet("mockMode")) !== true) {
     await call("onMockModeChange", { detail: { value: true } });
     await sleep(1200);
   }
-  rec("A2 演示模式默认开", (await dataGet("mockMode")) === true, `mockMode=${await dataGet("mockMode")}`);
+  const mockMode = await dataGet("mockMode");
+  rec("A2 演示模式默认开", mockMode === true, `mockMode=${mockMode}`);
+  const devicesAfterReset = await dataGet("devices.length");
+  rec("A2b 重置后设备列表清空", (devicesAfterReset ?? 0) === 0, `devices=${devicesAfterReset}`);
 
   // 扫描
   const r = await call("onScanTap");
@@ -268,6 +277,19 @@ console.log("\n=== §C 部位编辑器（引脚分区）===");
     rec("C9 提交布局有反馈", hint !== "" && hint !== undefined, `hint=${hint}`);
     const segsAfter = await dataGet("segs");
     rec("C10 提交后段不丢失", Array.isArray(segsAfter) && segsAfter.length > 0, `segs=${JSON.stringify(segsAfter)}`);
+    // 最终值断言：提交后页面立即刷新，parts/segs 反映设备读回值。
+    const partsAfter = await dataGet("parts");
+    const partCountAfter = await dataGet("partCount");
+    const activePartId = await dataGet("activePartId");
+    const activeSegs = Array.isArray(partsAfter) && partsAfter[activePartId]?.segs
+      ? JSON.stringify(partsAfter[activePartId].segs)
+      : "undefined";
+    const expectedSegs = JSON.stringify(segsAfter ?? []);
+    rec("C11 提交后 parts 槽位数与 segs 读回一致",
+      Array.isArray(partsAfter) && partsAfter.length > 0 &&
+        partCountAfter === partsAfter.length &&
+        activeSegs === expectedSegs,
+      `期望槽位数≥1 且 activePartId=${activePartId} segs=${expectedSegs}，实际 partCount=${partCountAfter} parts=${partsAfter?.length} activeSegs=${activeSegs}`);
 
     await mp.navigateBack().catch(() => {});
     await sleep(1000);
@@ -312,7 +334,7 @@ console.log("\n=== §D 场景编辑器（时间轴）===");
     // 验证步骤时长真的写进去了（#22 起新增步会保留旧步，读当前选中步而不是固定 0）
     const activeStep = await dataGet("activeStepIndex");
     const savedDur = await dataGet(`steps.${activeStep}.durationMs`);
-    rec("D6b 步骤时长落库", savedDur === 2000, `steps[${activeStep}].durationMs=${savedDur}`);
+    rec("D6b 步骤时长落库", savedDur === 2000, `期望 2000，实际 steps[${activeStep}].durationMs=${savedDur}`);
 
     // 保存场景名
     await call("onSceneNameInput", { detail: { value: "我的场景" } });
@@ -322,12 +344,38 @@ console.log("\n=== §D 场景编辑器（时间轴）===");
     const nameHint = await dataGet("hint");
     rec("D7 保存场景名", nameHint !== "" && nameHint !== undefined, `hint=${nameHint}`);
 
+    // 最终值断言：返回控制页再进编辑器，断言场景名从设备读回。
+    await mp.navigateBack().catch(() => {});
+    await sleep(1000);
+    await mp.switchTab("/pages/control/control").catch(() => {});
+    await sleep(800);
+    await waitForRoute("pages/control/control");
+    await call("onSceneEditorTap");
+    await sleep(1500);
+    await waitForRoute("pages/scene/scene");
+    await sleep(2000);
+    const sceneNameAfter = await dataGet("sceneName");
+    rec("D7b 场景名重进后读回「我的场景」",
+      sceneNameAfter === "我的场景",
+      `期望「我的场景」，实际「${sceneNameAfter}」`);
+
     // 激活场景
     await call("onActivateTap");
     await sleep(1000);
     const actHint = await dataGet("hint");
     rec("D8 激活场景", actHint !== "" && actHint !== undefined, `hint=${actHint}`);
-
+    // 最终值断言：返回控制页，断言 State.activeScene 等于当前 sceneId。
+    await mp.navigateBack().catch(() => {});
+    await sleep(1000);
+    await mp.switchTab("/pages/control/control").catch(() => {});
+    await sleep(800);
+    await waitForRoute("pages/control/control");
+    const expectedSceneId = await dataGet("state.activeScene");
+    const actualActive = await dataGet("activeSceneId");
+    rec("D8b 控制页 activeSceneId 与 State.activeScene 一致",
+      actualActive !== undefined && expectedSceneId !== undefined &&
+        actualActive === expectedSceneId,
+      `activeSceneId=${actualActive} state.activeScene=${expectedSceneId}`);
     await mp.navigateBack().catch(() => {});
     await sleep(800);
   }

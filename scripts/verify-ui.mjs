@@ -1,60 +1,46 @@
 #!/usr/bin/env node
 /**
- * L4 UI 渲染回归骨架（工单 #17）。
+ * L4 UI 渲染回归 runner（#17 骨架，#34 改为用户流程 runner）。
  *
- * 用 miniprogram-automator 驱动微信开发者工具里的真实小程序，按 §0–§7 八节组织
- * 断言。骨架期每节只挂 describe 壳 + 1 条「壳就位」占位断言，完整 48 条断言随
- * 页面实现逐个加。完整实现的判定口径与分节见 docs/spec.md §3.5 与工单 #8 决策 4。
- *
- * 为什么住在 scripts/ 而不是 miniprogram/.auto/：`.auto/` 整个在 .gitignore 里，
- * 换台机器 clone 下来这一层就凭空消失了——而它是唯一能发现白屏与 bindtap 全失效的
- * 一层。这里与真机探针、串口工具同类：都是「需要外部环境」的脚本。
+ * 顺序执行 scripts/verify-user-flow.mjs 与 scripts/user-flows/issue-*.mjs，
+ * 逐个用 spawnSync 调起。每个子脚本自己负责 automator 连接、断言与汇总输出。
+ * 本 runner 只负责：
+ *  - 先探测端口，无端口时单行 `SKIPPED: <原因>` exit 0（不染绿）。
+ *  - 按编号排序发现子脚本，spawnSync 执行，逐个打印 header 与 stdout/stderr。
+ *  - 统计每个子脚本的 PASS/FAIL 行；SKIPPED 记为 skipped，不算失败。
+ *  - 任一子脚本非零退出或有 FAIL → 整体失败。
+ *  - 末尾输出 `===== N passed / M failed =====` 与失败清单；有失败 exit 1。
+ *  - 保持 PASS/FAIL 行 + 汇总行的格式，让 scripts/test-run.mjs 的 ui 层
+ *    parseUiOutput 能解析（PASS/FAIL 行优先；缺环境时只有 SKIPPED 行）。
  *
  * 用法：
- *   node scripts/verify-ui.mjs                  # 跑全部 8 节
- *   node scripts/verify-ui.mjs --probe          # 只探端口，不跑断言
+ *   node scripts/verify-ui.mjs                  # 跑所有用户流程
+ *   node scripts/verify-ui.mjs --probe          # 只探端口
  *   WS=ws://127.0.0.1:9502 node scripts/verify-ui.mjs
  *
- * 9501 是 IDE 的 HTTP 端口，不是自动化 ws。必须 --auto-port：
- *   "C:\Program Files (x86)\Tencent\微信web开发者工具\cli.bat" auto ^
- *     --project "<repo>\miniprogram" --auto-port 9502 --trust-project
- * 判据是 `netstat -ano | findstr :9502` 有 LISTENING（不带 --auto-port 时 CLI
- * 照样打印 `✔ auto` 但 ws 端口根本不监听）。
- *
- * 退出码（供编排器 scripts/test-run.mjs 的 ui 层解析）：
- *   0 全部断言通过，或环境缺失（缺 automator / 缺自动化端口）
- *   1 有断言失败
- * 环境缺失不是失败：开发工具没开是常态，编排器要把它记成 SKIP 并写明原因。
- * 缺环境时 stdout 唯一一行 `SKIPPED: <原因>`。
+ * 缺环境时 stdout 唯一一行 `SKIPPED: <原因>`，退出码 0。
  */
+
 import { createRequire } from "node:module";
 import net from "node:net";
+import { spawnSync } from "node:child_process";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { existsSync, readdirSync } from "node:fs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-/* 仓库根：scripts -> 仓库根。所有路径都从这里推，不依赖 cwd。 */
 const REPO = resolve(HERE, "..");
 
-/* 候选自动化端口。微信开发者工具「设置 → 安全设置 → 服务端口」是个区间：
-   开着自动化后第一项占 9501，再开一个窗口顺延到 9502。`WS` 可强制指定，
-   指了就只试它（CI 与手工排查要靠这个确定性）。 */
 const PORT_CANDIDATES = process.env.WS
   ? [process.env.WS]
-  : ["ws://127.0.0.1:9501", "ws://127.0.0.1:9502"];
+  : ["ws://127.0.0.1:9529", "ws://127.0.0.1:9501", "ws://127.0.0.1:9502"];
 
-/* 探测超时：3 秒。开发者工具的 ws 端口要么立刻接受连接，要么本机直接
-   ECONNREFUSED。 */
 const PROBE_TIMEOUT_MS = 3000;
-
-/* 握手另给 8 秒：TCP 通之后真实 WebSocket 握手要来回几帧，3 秒偏紧；
-   但也不能无限等——半开端口会一直不应答。 */
 const HANDSHAKE_TIMEOUT_MS = 8000;
+const CHILD_TIMEOUT_MS = 240000;
 
-/* 缺环境时的固定前缀：编排器只认这一行，不看别的。 */
 const skipLine = (reason) => `SKIPPED: ${reason}`;
 
-/** 给不带宽限的 promise 加超时。 */
 function withTimeout(promise, ms, endpoint) {
   return new Promise((resolvePromise, rejectPromise) => {
     const timer = setTimeout(
@@ -68,7 +54,6 @@ function withTimeout(promise, ms, endpoint) {
   });
 }
 
-/** 加载 automator；缺失时返回 null（调用方据此报「缺环境」而不是硬失败）。 */
 function loadAutomator() {
   try {
     const requireFromMp = createRequire(resolve(REPO, "miniprogram", "package.json"));
@@ -79,11 +64,10 @@ function loadAutomator() {
   }
 }
 
-/** 探测自动化端口是否可连（仅 TCP，不握手、不跑断言）。 */
 function probeAutomationPort(endpoint, timeoutMs = PROBE_TIMEOUT_MS) {
   return new Promise((resolvePromise) => {
     let host = "127.0.0.1";
-    let port = 9501;
+    let port = 9529;
     try {
       const url = new URL(endpoint);
       host = url.hostname || host;
@@ -114,14 +98,6 @@ function probeAutomationPort(endpoint, timeoutMs = PROBE_TIMEOUT_MS) {
   });
 }
 
-/**
- * 依次试候选端口，返回第一个真正握手成功的地址。
- *
- * TCP 通不算数：端口开着但窗口没开「自动化」时 TCP 连得上、WebSocket 握手
- * 却失败。只测 TCP 会让探测说「可连」、正式跑立刻 SKIP，同一份环境两个结论。
- *
- * @returns {{ endpoint: string } | { reasons: string[] }}
- */
 async function pickEndpoint(automator) {
   const reasons = [];
   for (const endpoint of PORT_CANDIDATES) {
@@ -145,12 +121,11 @@ async function pickEndpoint(automator) {
   return { reasons };
 }
 
-/** 探测失败时指向可操作项。 */
 const PORT_HINT =
   "在微信开发者工具里打开 设置 → 安全设置 → 服务端口（开启「自动化」），" +
   `或按需设置 WS=<ws 地址>；已试 ${PORT_CANDIDATES.join(" / ")}`;
 
-/* ---------------- 只探测，不跑断言 ---------------- */
+/* ---------------- --probe 分支 ---------------- */
 
 if (process.argv.includes("--probe")) {
   const probeAutomator = loadAutomator();
@@ -167,7 +142,7 @@ if (process.argv.includes("--probe")) {
   process.exit(0);
 }
 
-/* ---------------- 正常验收 ---------------- */
+/* ---------------- 正常模式 ---------------- */
 
 const automator = loadAutomator();
 if (automator === null) {
@@ -175,115 +150,114 @@ if (automator === null) {
   process.exit(0);
 }
 
-/* 先试端口再跑断言：连不上时报「缺环境」而不是抛栈，编排器才不会把常态当失败。 */
 const chosen = await pickEndpoint(automator);
 if (!("endpoint" in chosen)) {
   console.log(skipLine(`缺微信开发者工具自动化端口（${chosen.reasons.join("；")}）。${PORT_HINT}`));
   process.exit(0);
 }
 
-let mp;
-try {
-  mp = await automator.connect({ wsEndpoint: chosen.endpoint });
-} catch (error) {
-  console.log(skipLine(`缺微信开发者工具自动化端口（${chosen.endpoint}：${String(error.message ?? error)}）。${PORT_HINT}`));
-  process.exit(0);
+/** 发现子脚本：verify-user-flow.mjs + user-flows/issue-*.mjs，按编号排序。 */
+function discoverScripts() {
+  const scripts = [resolve(HERE, "verify-user-flow.mjs")];
+  const flowsDir = resolve(HERE, "user-flows");
+  if (!existsSync(flowsDir)) return scripts;
+  const issueFiles = readdirSync(flowsDir)
+    .filter((name) => /^issue-[\d-]+\.mjs$/.test(name))
+    .sort((a, b) => {
+      const na = Number(a.match(/issue-([\d]+)/)[1]);
+      const nb = Number(b.match(/issue-([\d]+)/)[1]);
+      return na - nb || a.localeCompare(b);
+    });
+  for (const name of issueFiles) {
+    scripts.push(resolve(flowsDir, name));
+  }
+  return scripts;
 }
 
-let pass = 0;
-let fail = 0;
-const rec = (name, ok, detail = "") => {
-  ok ? pass++ : fail++;
-  console.log(`${ok ? "PASS" : "FAIL"}  ${name}${detail ? "  — " + detail : ""}`);
-};
+function parseChildOutput(stdout) {
+  let pass = 0;
+  let fail = 0;
+  const failures = [];
+  for (const raw of String(stdout ?? "").split(/\r?\n/)) {
+    const line = raw.trim();
+    const match = /^(PASS|FAIL)\s{2,}(.+)$/.exec(line);
+    if (match === null) continue;
+    const rest = match[2];
+    const splitAt = rest.indexOf("  — ");
+    const name = splitAt < 0 ? rest : rest.slice(0, splitAt);
+    const detail = splitAt < 0 ? "" : rest.slice(splitAt + "  — ".length);
+    if (match[1] === "PASS") pass += 1;
+    else {
+      fail += 1;
+      failures.push(name + (detail ? ` — ${detail}` : ""));
+    }
+  }
+  return { pass, fail, failures };
+}
 
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+function relativeToRepo(absPath) {
+  return absPath.replace(REPO + "\\", "").replace(REPO + "/", "").replace(/\\/g, "/");
+}
 
-const pageState = () =>
-  mp.evaluate(() => {
-    const p = getCurrentPages().pop();
-    return p ? { route: p.route, data: p.data } : null;
+const scripts = discoverScripts();
+let totalPass = 0;
+let totalFail = 0;
+let totalSkipped = 0;
+const failedScripts = [];
+
+for (const script of scripts) {
+  const rel = relativeToRepo(script);
+  console.log(`\n--- ${rel} ---`);
+  const res = spawnSync(process.execPath, [script], {
+    cwd: REPO,
+    env: { ...process.env, WS: chosen.endpoint },
+    encoding: "utf8",
+    timeout: CHILD_TIMEOUT_MS,
+    maxBuffer: 32 * 1024 * 1024,
   });
 
-const textOf = async () => {
-  const pages = await mp.currentPage().then((p) => p.$$(".page"));
-  if (pages.length === 0) return "";
-  return pages[0].outerWxml();
-};
+  const stdout = String(res.stdout ?? "");
+  const stderr = String(res.stderr ?? "");
+  if (stdout.trim()) process.stdout.write(stdout.endsWith("\n") ? stdout : stdout + "\n");
+  if (stderr.trim()) process.stderr.write(stderr.endsWith("\n") ? stderr : stderr + "\n");
 
-/** 等页面栈顶变成指定路由。switchTab / navigateTo 都是异步的，
-    抢在它前面 pop() 会拿到错的页面。 */
-const waitForRoute = async (route, timeoutMs = 8000) => {
-  const started = Date.now();
-  while (Date.now() - started < timeoutMs) {
-    const state = await pageState();
-    if (state !== null && state.route === route) return true;
-    await sleep(120);
+  if (res.error) {
+    const timedOut = res.error.code === "ETIMEDOUT";
+    const reason = timedOut ? `子脚本超时（${CHILD_TIMEOUT_MS / 1000}s）` : String(res.error.message ?? res.error);
+    totalFail += 1;
+    failedScripts.push({ script: rel, reason, detail: "" });
+    console.log(`FAIL  ${rel} — ${reason}`);
+    continue;
   }
-  return false;
-};
 
-/* ---------------- 8 节 describe 壳 ----------------
- * 骨架期每节只挂壳 + 1 条占位断言，完整 48 条断言随页面实现逐个加。
- * 分节与覆盖范围按 docs/spec.md §3.5 与工单 #8 决策 4。
- */
+  const skippedLine = stdout.split(/\r?\n/).find((line) => line.trim().startsWith("SKIPPED:"));
+  if (skippedLine !== undefined) {
+    totalSkipped += 1;
+    console.log(`SKIPPED: ${skippedLine.trim().slice("SKIPPED:".length).trim()}（${rel}）`);
+    continue;
+  }
 
-console.log("\n--- §0 启动 ---");
-try {
-  const boot = await pageState();
-  rec("小程序启动、页面已注册", boot !== null && boot.route !== undefined, boot?.route ?? "");
-} catch (err) {
-  rec("小程序启动、页面已注册", false, String(err));
+  const parsed = parseChildOutput(stdout);
+  totalPass += parsed.pass;
+  if (parsed.fail > 0 || res.status !== 0) {
+    totalFail += parsed.fail > 0 ? parsed.fail : 1;
+    failedScripts.push({
+      script: rel,
+      reason: parsed.fail > 0 ? `${parsed.fail} 条断言失败` : `非零退出码 ${res.status}`,
+      detail: parsed.failures.join("；"),
+    });
+  }
 }
 
-console.log("\n--- §1 演示模式 ---");
-{
-  /* TODO: 无真机记录自动开演示；3 台设备 spec 形状差异可见。完整实现：5 条。 */
-  rec("演示模式壳就位", true, "骨架占位");
+console.log(`\n===== ${totalPass} passed / ${totalFail} failed =====`);
+if (totalSkipped > 0) {
+  console.log(`（${totalSkipped} 个脚本 SKIPPED，不计入失败）`);
+}
+if (failedScripts.length > 0) {
+  console.log("\n失败清单：");
+  for (const item of failedScripts) {
+    console.log(`  - ${item.script}：${item.reason}${item.detail ? `（${item.detail}）` : ""}`);
+  }
 }
 
-console.log("\n--- §2 设备 tab ---");
-{
-  await mp.switchTab("/pages/device/device").catch(() => {});
-  await sleep(800);
-  await waitForRoute("pages/device/device");
-  /* TODO: 扫描列表、点卡连接、连接状态条、演示开关。完整实现：6 条。 */
-  rec("设备 tab 壳就位", true, "骨架占位");
-}
-
-console.log("\n--- §3 控制 tab ---");
-{
-  await mp.switchTab("/pages/control/control").catch(() => {});
-  await sleep(800);
-  await waitForRoute("pages/control/control");
-  /* TODO: 整机开关 / 亮度滑块 / 每链开关与灯珠数 / 场景切换 / 自检入口。完整实现：8 条。 */
-  rec("控制 tab 壳就位", true, "骨架占位");
-}
-
-console.log("\n--- §4 部位编辑器（壳）---");
-{
-  /* TODO: navigateTo 带参 stripId、占位渲染、返回后控制页镜像不丢。完整实现：4 条。 */
-  rec("部位编辑器壳就位", true, "骨架占位");
-}
-
-console.log("\n--- §5 场景编辑器（壳）---");
-{
-  /* TODO: navigateTo 带参 sceneId、占位渲染、返回后控制页镜像不丢。完整实现：4 条。 */
-  rec("场景编辑器壳就位", true, "骨架占位");
-}
-
-console.log("\n--- §6 开关层级与镜像读回 ---");
-{
-  /* TODO: 切开关 → ACK → 镜像更新；亮度拖动跟手（latest-wins）。完整实现：4 条。 */
-  rec("开关层级与镜像读回壳就位", true, "骨架占位");
-}
-
-console.log("\n--- §7 日志面板 ---");
-{
-  /* TODO: 版本号×5 唤出、环形 200 帧、暂停 / 清空 / 复制。完整实现：6 条。 */
-  rec("日志面板壳就位", true, "骨架占位");
-}
-
-console.log(`\n===== ${pass} passed / ${fail} failed =====`);
-await mp.disconnect();
-process.exit(fail === 0 ? 0 : 1);
+process.exit(totalFail > 0 ? 1 : 0);

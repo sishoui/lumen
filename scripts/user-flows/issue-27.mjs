@@ -141,6 +141,17 @@ const waitUntil = async (predicate, timeoutMs = 6000, intervalMs = 200) => {
   return false;
 };
 
+/** DOM 级：元素是否存在（真实 WXML 渲染）。 */
+const domExists = async (selector) => {
+  try {
+    const page = await mp.currentPage();
+    const node = await page.$(selector);
+    return node !== null && node !== undefined;
+  } catch {
+    return false;
+  }
+};
+
 const optionIndex = async (dataKey, label) => {
   const options = await dataGet(dataKey);
   if (!Array.isArray(options)) return -1;
@@ -214,22 +225,35 @@ console.log("\n=== §C 字段显隐 ===");
   await call("onLayer0TypeChange", { detail: { value: heartbeatIndex } });
   await sleep(300);
   const heartbeatFields = await dataGet("layer0Fields");
-  rec("C2 心跳显示周期", heartbeatFields?.period === true && (await dataGet("layer0Type")) === 5,
-    `type=${await dataGet("layer0Type")} period=${heartbeatFields?.period}`);
+  const domPeriodHeartbeat = await domExists(".field-layer0-period");
+  const domHueHeartbeat = await domExists(".field-layer0-hue");
+  rec("C2 心跳显示周期",
+    heartbeatFields?.period === true && (await dataGet("layer0Type")) === 5 &&
+      domPeriodHeartbeat === true && domHueHeartbeat === true,
+    `type=${await dataGet("layer0Type")} period=${heartbeatFields?.period} dom.period=${domPeriodHeartbeat} dom.hue=${domHueHeartbeat}`);
 
   const staticIndex = await optionIndex("layer0Options", "静态");
   await call("onLayer0TypeChange", { detail: { value: staticIndex } });
   await sleep(300);
   const staticFields = await dataGet("layer0Fields");
-  rec("C3 静态隐藏周期", staticFields?.period === false && staticFields?.hue === true,
-    `period=${staticFields?.period} hue=${staticFields?.hue}`);
+  const domPeriodStatic = await domExists(".field-layer0-period");
+  const domHueStatic = await domExists(".field-layer0-hue");
+  rec("C3 静态隐藏周期",
+    staticFields?.period === false && staticFields?.hue === true &&
+      domPeriodStatic === false && domHueStatic === true,
+    `period=${staticFields?.period} hue=${staticFields?.hue} dom.period=${domPeriodStatic} dom.hue=${domHueStatic}`);
 
   const offIndex = await optionIndex("layer0Options", "熄灭");
   await call("onLayer0TypeChange", { detail: { value: offIndex } });
   await sleep(300);
+  const domHueOff = await domExists(".field-layer0-hue");
+  const domSatOff = await domExists(".field-layer0-sat");
+  const domPeriodOff = await domExists(".field-layer0-period");
+  const domLevelOff = await domExists(".field-layer0-level");
   rec("C4 熄灭只显示类型",
-    fieldsAllFalse(await dataGet("layer0Fields")) && (await dataGet("layer0Label")) === "熄灭",
-    `label=${await dataGet("layer0Label")} fields=${JSON.stringify(await dataGet("layer0Fields"))}`);
+    fieldsAllFalse(await dataGet("layer0Fields")) && (await dataGet("layer0Label")) === "熄灭" &&
+      domHueOff === false && domSatOff === false && domPeriodOff === false && domLevelOff === false,
+    `label=${await dataGet("layer0Label")} fields=${JSON.stringify(await dataGet("layer0Fields"))} dom(hue=${domHueOff} sat=${domSatOff} period=${domPeriodOff} level=${domLevelOff})`);
 
   // 回到静态，后面的保存用合法底层
   await call("onLayer0TypeChange", { detail: { value: staticIndex } });
@@ -244,9 +268,14 @@ console.log("\n=== §D 叠加层空层往返 ===");
   const emptyIndex = await optionIndex("layer1Options", "空层");
   await call("onLayer1TypeChange", { detail: { value: emptyIndex } });
   await sleep(300);
+  const domL1HueEmpty = await domExists(".field-layer1-hue");
+  const domL1SatEmpty = await domExists(".field-layer1-sat");
+  const domL1PeriodEmpty = await domExists(".field-layer1-period");
+  const domL1LevelEmpty = await domExists(".field-layer1-level");
   rec("D1 叠加层空层隐藏全部字段",
-    fieldsAllFalse(await dataGet("layer1Fields")) && (await dataGet("layer1Type")) === 255,
-    `type=${await dataGet("layer1Type")} fields=${JSON.stringify(await dataGet("layer1Fields"))}`);
+    fieldsAllFalse(await dataGet("layer1Fields")) && (await dataGet("layer1Type")) === 255 &&
+      domL1HueEmpty === false && domL1SatEmpty === false && domL1PeriodEmpty === false && domL1LevelEmpty === false,
+    `type=${await dataGet("layer1Type")} fields=${JSON.stringify(await dataGet("layer1Fields"))} dom(hue=${domL1HueEmpty} sat=${domL1SatEmpty} period=${domL1PeriodEmpty} level=${domL1LevelEmpty})`);
 
   const breathingIndex = await optionIndex("layer1Options", "呼吸");
   await call("onLayer1TypeChange", { detail: { value: breathingIndex } });
@@ -254,9 +283,11 @@ console.log("\n=== §D 叠加层空层往返 ===");
   rec("D2 空层切呼吸默认亮度 50",
     (await dataGet("layer1Type")) === 1 && (await dataGet("layer1Level")) === 50,
     `type=${await dataGet("layer1Type")} level=${await dataGet("layer1Level")}`);
+  const domL1PeriodBreath = await domExists(".field-layer1-period");
+  const domL1HueBreath = await domExists(".field-layer1-hue");
   rec("D3 呼吸显示 hue/sat/period/level",
-    (await dataGet("layer1Fields"))?.period === true,
-    JSON.stringify(await dataGet("layer1Fields")));
+    (await dataGet("layer1Fields"))?.period === true && domL1PeriodBreath === true && domL1HueBreath === true,
+    `fields=${JSON.stringify(await dataGet("layer1Fields"))} dom.period=${domL1PeriodBreath} dom.hue=${domL1HueBreath}`);
 
   await call("onSaveStep");
   const savedReal = await waitUntil(async () => (await dataGet("steps.0.layer1.type")) === 1, 8000);
