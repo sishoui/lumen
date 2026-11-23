@@ -6,6 +6,8 @@ import {
   readbackToParts, planLayoutCommit, layoutCommitFeedback,
   partLimit, canAddPart, addPartSlot, removePartSlot,
 } from "../../utils/part-editor";
+import { validateNameBytes, nameByteLabel } from "../../utils/name-bytes";
+import { NAME_BYTES } from "../../utils/protocol/constants";
 import { PHASE, MAX_PARTS, MAX_PART_SEGS } from "../../utils/protocol/constants";
 import type { LayoutPart } from "../../utils/protocol/types";
 
@@ -53,6 +55,12 @@ Page({
       { value: PHASE.PER_SEGMENT, label: "各自起点" },
     ],
     partName: "",
+    /** 当前部位名的 UTF-8 已用字节数（输入时实时更新） */
+    partNameBytes: 0,
+    /** 名字上限（字节），来自协议 NAME_BYTES */
+    nameLimit: NAME_BYTES,
+    /** 名字字节提示文案「已用 X / 24 字节」 */
+    nameByteLabel: nameByteLabel(""),
     /** 消息提示 */
     hint: "",
     /** 是否正在加载 */
@@ -105,6 +113,8 @@ Page({
       segs: activePart.segs,
       phase: activePart.phase,
       partName: activePart.name,
+      partNameBytes: validateNameBytes(activePart.name).bytes,
+      nameByteLabel: nameByteLabel(activePart.name),
       loading: false,
     });
     this.renderLedCells();
@@ -122,6 +132,8 @@ Page({
       segs: active.segs,
       phase: active.phase,
       partName: active.name,
+      partNameBytes: validateNameBytes(active.name).bytes,
+      nameByteLabel: nameByteLabel(active.name),
       selecting: null,
       selectStart: -1,
       hint,
@@ -286,8 +298,16 @@ Page({
     const parts = this.data.parts;
     const activePartId = this.data.activePartId;
     const p = parts[activePartId];
-    parts[activePartId] = { ...p, name, nameLen: name.length };
-    this.setData({ parts, partName: name });
+    const nameLen = validateNameBytes(name).bytes;
+    parts[activePartId] = { ...p, name, nameLen };
+    const check = validateNameBytes(name);
+    this.setData({
+      parts,
+      partName: name,
+      partNameBytes: check.bytes,
+      nameByteLabel: nameByteLabel(name),
+      hint: check.ok ? "" : check.message,
+    });
   },
 
   /** 取消当前拖选。 */
@@ -302,6 +322,15 @@ Page({
     if (plan.length === 0) {
       this.setData({ hint: "没有已分配段的部位，无法提交" });
       return;
+    }
+    // 名字按 UTF-8 字节数校验：任一非空部位名超限即阻止提交，不发 LayoutCommit。
+    for (const p of this.data.parts) {
+      if (!p.name) continue;
+      const nameCheck = validateNameBytes(p.name);
+      if (!nameCheck.ok) {
+        this.setData({ hint: `未提交：部位 ${p.partId} ${nameCheck.message}` });
+        return;
+      }
     }
     // 校验（整份校验，validateLayout 内部跨部位检查用 i<j，不会自重叠）
     const verr = validateLayout(this.data.stripId, plan, this.data.ledCount);

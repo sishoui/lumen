@@ -11,6 +11,7 @@ import {
   partLimit, canAddPart, addPartSlot, removePartSlot,
 } from "../utils/part-editor";
 import { decodeFrame } from "../utils/protocol/frame";
+import { validateNameBytes } from "../utils/name-bytes";
 import { CMD, MAX_PARTS, RESULT } from "../utils/protocol/constants";
 import type {
   AdapterState, DeviceInfo, DiscoveredDevice, LayoutPart, LinkState,
@@ -373,5 +374,101 @@ describe("部位槽位增删", () => {
     ).toEqual([{ partId: 0, name: "前半", segs: [[0, 29]] }]);
     expect(session.deviceState?.partCounts[0], "提交后 State 的部位数为 1").toBe(1);
     expect(session.layout[0]?.parts.length, "场景编辑器读取的布局缓存同步为 1 个部位").toBe(1);
+  });
+});
+
+describe("部位名字节上限（#29）", () => {
+  const CJK8 = "一二三四五六七八"; // 24 字节
+  const CJK9 = "一二三四五六七八九"; // 27 字节
+  const EMOJI6 = "😀😀😀😀😀😀"; // 24 字节
+  const EMOJI7 = "😀😀😀😀😀😀😀"; // 28 字节
+
+  /** 记录帧并转发给真实 MockTransport；用于断言「超限不发 LayoutCommit 族命令」。 */
+  function recordingTransport(): { transport: MockTransport; frames: Uint8Array[] } {
+    const transport = new MockTransport({ scenario: "normal" });
+    const frames: Uint8Array[] = [];
+    const original = transport.sendFrame.bind(transport);
+    transport.sendFrame = async (frame: Uint8Array): Promise<void> => {
+      frames.push(frame);
+      return original(frame);
+    };
+    return { transport, frames };
+  }
+
+  const layoutFrames = (frames: Uint8Array[]): Uint8Array[] =>
+    frames.filter((f) => {
+      const d = decodeFrame(f);
+      return d.ok && (d.command === CMD.LAYOUT_WRITE || d.command === CMD.LAYOUT_PART);
+    });
+
+  it("8 个中文（24 字节）提交成功，QueryLayout 读回名字一致", async () => {
+    const rec = recordingTransport();
+    const session = new ControlSession({ transport: rec.transport, storage: createMemoryStorage() });
+    const desk = MOCK_DEVICES[0];
+    await session.connect(desk.deviceId, desk.broadcastName);
+
+    const parts: LayoutPart[] = [
+      { stripId: 0, partId: 0, name: CJK8, nameLen: 24, segs: [[0, 29]], segCount: 1, phase: 0 },
+    ];
+    const result = await session.layoutCommit(parts);
+    expect(result.kind, `24 字节名字应可提交，实际 ${JSON.stringify(result)}`).toBe("ok");
+
+    const read = await session.queryLayout(0);
+    expect(read.kind).toBe("ok");
+    if (read.kind !== "ok") return;
+    expect(read.layout.parts.map((p) => p.name), "读回名字应与提交一致").toEqual([CJK8]);
+  });
+
+  it("6 个 emoji（24 字节）提交成功，读回名字一致", async () => {
+    const rec = recordingTransport();
+    const session = new ControlSession({ transport: rec.transport, storage: createMemoryStorage() });
+    const desk = MOCK_DEVICES[0];
+    await session.connect(desk.deviceId, desk.broadcastName);
+
+    const parts: LayoutPart[] = [
+      { stripId: 0, partId: 0, name: EMOJI6, nameLen: 24, segs: [[0, 29]], segCount: 1, phase: 0 },
+    ];
+    const result = await session.layoutCommit(parts);
+    expect(result.kind, `24 字节 emoji 名字应可提交，实际 ${JSON.stringify(result)}`).toBe("ok");
+
+    const read = await session.queryLayout(0);
+    expect(read.kind).toBe("ok");
+    if (read.kind !== "ok") return;
+    expect(read.layout.parts.map((p) => p.name)).toEqual([EMOJI6]);
+  });
+
+  it("9 个中文（27 字节）validateLayout 拦截，不发 LayoutCommit 族命令", async () => {
+    const rec = recordingTransport();
+    const session = new ControlSession({ transport: rec.transport, storage: createMemoryStorage() });
+    const desk = MOCK_DEVICES[0];
+    await session.connect(desk.deviceId, desk.broadcastName);
+    rec.frames.length = 0;
+
+    const parts: LayoutPart[] = [
+      { stripId: 0, partId: 0, name: CJK9, nameLen: 27, segs: [[0, 29]], segCount: 1, phase: 0 },
+    ];
+    const verr = validateLayout(0, parts, 60);
+    expect(verr, "27 字节名字应被 validateLayout 拦截").toContain("27");
+    expect(verr, "拦截提示应含上限 24").toContain("24");
+
+    // 页面在 validateLayout 失败时不调用 layoutCommit：断言 transport 无 LayoutWrite/LayoutPart。
+    expect(layoutFrames(rec.frames).length, "超限不得发送任何 LayoutCommit 族命令").toBe(0);
+  });
+
+  it("7 个 emoji（28 字节）validateLayout 拦截，提示 28/24", () => {
+    const parts: LayoutPart[] = [
+      { stripId: 0, partId: 0, name: EMOJI7, nameLen: 28, segs: [[0, 29]], segCount: 1, phase: 0 },
+    ];
+    const verr = validateLayout(0, parts, 60);
+    expect(verr, "28 字节 emoji 名字应被拦截").not.toBeNull();
+    expect(verr).toContain("28");
+    expect(verr).toContain("24");
+  });
+
+  it("nameLen 用 UTF-8 字节数而非字符数：8 中文=24 字节，9 中文=27 字节", () => {
+    expect(validateNameBytes(CJK8).bytes, "8 个中文的 nameLen 应是 24 字节").toBe(24);
+    expect(CJK8.length, "字符数是 8，证明字节数≠字符数").toBe(8);
+    expect(validateNameBytes(CJK9).bytes, "9 个中文的 nameLen 应是 27 字节").toBe(27);
+    expect(CJK9.length).toBe(9);
   });
 });

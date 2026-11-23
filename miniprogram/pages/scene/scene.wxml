@@ -11,7 +11,8 @@
       <view class="row">
         <text class="label">场景名</text>
         <input class="name-input" value="{{sceneName}}" bindinput="onSceneNameInput"
-          placeholder="场景名" maxlength="24" />
+          placeholder="场景名" />
+        <text class="name-bytes {{sceneNameBytes > nameLimit ? 'over' : ''}}">{{nameByteLabel}}</text>
         <view class="button small" bindtap="onSaveSceneName">保存</view>
       </view>
       <view class="row">

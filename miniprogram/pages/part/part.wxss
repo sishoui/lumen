@@ -51,6 +51,14 @@
   text-align: right;
 }
 
+.name-bytes {
+  margin-left: 12rpx;
+  font-size: 24rpx;
+  color: #8e8e93;
+  white-space: nowrap;
+}
+.name-bytes.over { color: #ff3b30; }
+
 .picker-text { font-size: 28rpx; color: #007aff; }
 
 .button.danger { background: #ff3b30; }

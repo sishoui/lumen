@@ -170,8 +170,13 @@
     },
     "miniprogram/tests/part-editor.test.ts": {
       "layer": "mp",
-      "covers": "部位编辑器（引脚分区）：段互斥校验、布局往返（MockTransport LayoutCommit）、相位模式、灯珠占用判断、readbackToParts、断层提交连续重编号读回、提交后会话 State 刷新、读回失败提示、槽位增删（上限来自 deviceInfo.maxParts、空槽直删、有段需确认、删除后选中范围、增删后提交读回）",
-      "ticket": "#引脚分区/#23/#24"
+      "covers": "部位编辑器（引脚分区）：段互斥校验、布局往返（MockTransport LayoutCommit）、相位模式、灯珠占用判断、readbackToParts、断层提交连续重编号读回、提交后会话 State 刷新、读回失败提示、槽位增删（上限来自 deviceInfo.maxParts、空槽直删、有段需确认、删除后选中范围、增删后提交读回）、部位名字节上限（8 中文 24 字节可提交读回、6 emoji 24 字节可提交读回、9 中文 27 字节与 7 emoji 28 字节被 validateLayout 拦截且无 LayoutCommit 帧）",
+      "ticket": "#引脚分区/#23/#24/#29"
+    },
+    "miniprogram/tests/name-bytes.test.ts": {
+      "layer": "mp",
+      "covers": "名字 UTF-8 字节数校验（#29）：utf8ByteLength 对 ASCII 1 字节/中文 3 字节/emoji 代理对 4 字节、validateNameBytes 在 24/25 字节、8/9 中文、6/7 emoji 边界的通过与拦截、message 含具体字节数与上限、nameByteLabel 文案",
+      "ticket": "#29"
     },
     "miniprogram/tests/led-count.test.ts": {
       "layer": "mp",
@@ -195,8 +200,8 @@
     },
     "miniprogram/tests/scene-editor.test.ts": {
       "layer": "mp",
-      "covers": "场景编辑器（时间轴）：步骤时长校验、循环模式校验、ScenePart+SceneStep 往返、场景名读写、ActivateScene、越界 stepIndex 拒绝；灯效 picker 的 index→协议 type 映射、底层不含空层、字段可见性、类型切换归一化、空层保存读回、周期边界",
-      "ticket": "#时间轴"
+      "covers": "场景编辑器（时间轴）：步骤时长校验、循环模式校验、ScenePart+SceneStep 往返、场景名读写、ActivateScene、越界 stepIndex 拒绝；灯效 picker 的 index→协议 type 映射、底层不含空层、字段可见性、类型切换归一化、空层保存读回、周期边界；场景名字节上限（8 中文 24 字节保存后读回一致、9 中文 27 字节被编码器 RangeError 拦截且 message 透传 27/24、不发 SceneName 帧）",
+      "ticket": "#时间轴/#29"
     },
     "miniprogram/tests/scene-timeline.test.ts": {
       "layer": "mp",
@@ -247,6 +252,11 @@
       "layer": "ui",
       "covers": "工单 #28 用户流程：演示模式重置后造一步 → layer0 level 101 保存被拦截且提示含亮度/100、步骤未被改写 → 心跳周期 200 提示含 500–1500 → 呼吸→静态保存读回 period=0 → 熄灭保存读回 hue/sat/period 全 0 → 叠加层空层保存读回 0xFF 全 0；缺自动化端口时 SKIP",
       "ticket": "#28"
+    },
+    "scripts/user-flows/issue-29.mjs": {
+      "layer": "ui",
+      "covers": "工单 #29 用户流程：演示模式重置后部位编辑器输入 8 中文（24 字节）提交成功重进读回名字一致 → 输入 9 中文（27 字节）提交被拦提示含 27/24 且不发 LayoutCommit → 场景编辑器 8 中文保存重进读回 → 9 中文被拦提示含具体字节数且不是「保存失败：error」；缺自动化端口时 SKIP",
+      "ticket": "#29"
     },
     "miniprogram/tests/scene-prepare-save.test.ts": {
       "covers": "保存前先校验再归一化（#28）：心跳 period=200 被拒且错误含 500–1500（不被 normalizeLayer 清零吞掉）、心跳 500/1500 通过且 period 保留、呼吸→静态 period=0、熄灭 hue/sat/period 全 0、level 101 被拒、叠加层空层 type=0xFF 全 0",

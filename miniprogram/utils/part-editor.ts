@@ -4,8 +4,9 @@
  */
 
 import type { DeviceInfo, LayoutPart, LayoutReadback } from "./protocol/types";
-import type { EditResult } from "./session/session";
 import { MAX_PARTS, MAX_PART_SEGS, RESULT } from "./protocol/constants";
+import { validateNameBytes } from "./name-bytes";
+import type { EditResult } from "./session/session";
 
 /** 判断某颗灯珠是否已被任何部位占用。 */
 export function isLedOccupied(ledIndex: number, parts: LayoutPart[]): boolean {
@@ -76,7 +77,8 @@ export function validateLayout(
   for (const p of parts) {
     if (p.stripId !== stripId) return `部位 stripId 不一致`;
     if (p.segs.length > MAX_PART_SEGS) return `部位 ${p.partId} 段数 ${p.segs.length} > ${MAX_PART_SEGS}`;
-    if (p.name.length > 24) return `部位 ${p.partId} 名字超长`;
+    const nameCheck = validateNameBytes(p.name);
+    if (!nameCheck.ok) return `部位 ${p.partId}：${nameCheck.message}`;
     for (const [s, e] of p.segs) {
       if (s > e) return `部位 ${p.partId} 段 [${s},${e}] 起点 > 终点`;
       if (e >= ledCount) return `部位 ${p.partId} 段 [${s},${e}] 终点 ${e} 超出灯珠数 ${ledCount}`;

@@ -6,9 +6,11 @@ import { ControlSession } from "../utils/session/session";
 import { createMemoryStorage } from "./helpers/storage";
 import { MOCK_DEVICES } from "../utils/mock/mock-devices";
 import {
-  LOOP, EFFECT_TYPE, NO_EFFECT, LAYER_LEVEL_MAX,
+  LOOP, EFFECT_TYPE, NO_EFFECT, LAYER_LEVEL_MAX, CMD,
   isValidEffectPeriod,
 } from "../utils/protocol/constants";
+import { decodeFrame } from "../utils/protocol/frame";
+import { validateNameBytes } from "../utils/name-bytes";
 import type { EffectLayer } from "../utils/protocol/types";
 import {
   validateDuration, validateLoop, createEmptyStep, createStaticLayer, isLayerEmpty,
@@ -378,5 +380,69 @@ describe("灯效类型映射与字段显隐（#27）", () => {
     expect(effectLabel(EFFECT_TYPE.HEARTBEAT)).toBe("心跳");
     expect(effectLabel(NO_EFFECT)).toBe("空层");
     expect(effectLabel(0x42)).toContain("未知");
+  });
+});
+describe("场景名字节上限（#29）", () => {
+  const CJK8 = "一二三四五六七八"; // 24 字节
+  const CJK9 = "一二三四五六七八九"; // 27 字节
+
+  /** 记录帧并转发给真实 MockTransport。 */
+  function recordingTransport(): { transport: MockTransport; frames: Uint8Array[] } {
+    const transport = new MockTransport({ scenario: "normal" });
+    const frames: Uint8Array[] = [];
+    const original = transport.sendFrame.bind(transport);
+    transport.sendFrame = async (frame: Uint8Array): Promise<void> => {
+      frames.push(frame);
+      return original(frame);
+    };
+    return { transport, frames };
+  }
+
+  const sceneNameFrames = (frames: Uint8Array[]): Uint8Array[] =>
+    frames.filter((f) => {
+      const d = decodeFrame(f);
+      return d.ok && d.command === CMD.SCENE_NAME;
+    });
+
+  it("8 个中文（24 字节）保存成功，QueryScene 读回一致", async () => {
+    const rec = recordingTransport();
+    const session = new ControlSession({ transport: rec.transport, storage: createMemoryStorage() });
+    const desk = MOCK_DEVICES[0];
+    await session.connect(desk.deviceId, desk.broadcastName);
+
+    const r = await session.sceneName(0, CJK8);
+    expect(r.kind, `24 字节场景名应可保存，实际 ${JSON.stringify(r)}`).toBe("ok");
+
+    const read = await session.queryScene(0);
+    expect(read.kind).toBe("ok");
+    if (read.kind !== "ok") return;
+    expect(read.scene.name, "读回场景名应与保存一致").toBe(CJK8);
+  });
+
+  it("9 个中文（27 字节）sceneName 编码器抛 RangeError，message 含 27/24 透传", async () => {
+    const rec = recordingTransport();
+    const session = new ControlSession({ transport: rec.transport, storage: createMemoryStorage() });
+    const desk = MOCK_DEVICES[0];
+    await session.connect(desk.deviceId, desk.broadcastName);
+    rec.frames.length = 0;
+
+    // 直接调 session.sceneName：编码器 RangeError 被 enqueue 捕获为 error 结果，
+    // message 必须透传（不再显示「保存失败：error」）。
+    const r = await session.sceneName(0, CJK9);
+    expect(r.kind, "27 字节场景名应被编码器拒绝").toBe("error");
+    if (r.kind !== "error") return;
+    expect(r.message, "error message 应透传具体字节数").toContain("27");
+    expect(r.message, "error message 应含上限 24").toContain("24");
+    expect(r.message, "不得是笼统的 error 字样").not.toBe("error");
+    // 超限未发送 SceneName 命令。
+    expect(sceneNameFrames(rec.frames).length, "超限不得发送 SceneName").toBe(0);
+  });
+
+  it("超限走页面 onSaveSceneName：validateNameBytes 先拦，提示具体字节数，不发命令", () => {
+    const check = validateNameBytes(CJK9);
+    expect(check.ok).toBe(false);
+    expect(check.bytes).toBe(27);
+    expect(check.message).toContain("27");
+    expect(check.message).toContain("24");
   });
 });

@@ -12,6 +12,8 @@ import {
 import type { LayerPickerOption, LayerFieldVisibility } from "../../utils/scene-editor";
 import { runTimelineWrite, editFailureText } from "../../utils/scene-writer";
 import type { TimelineOperation, TimelineWriteOutcome } from "../../utils/scene-writer";
+import { validateNameBytes, nameByteLabel } from "../../utils/name-bytes";
+import { NAME_BYTES } from "../../utils/protocol/constants";
 import { LOOP, EFFECT_TYPE, NO_EFFECT } from "../../utils/protocol/constants";
 import { EMPTY_EFFECT } from "../../utils/protocol/types";
 import type { SceneStep, EffectLayer, SceneReport } from "../../utils/protocol/types";
@@ -96,6 +98,12 @@ Page({
     layer1PickerIndex: pickerIndexForType(LAYER1_OPTIONS, NO_EFFECT),
     layer0Label: effectLabel(EFFECT_TYPE.STATIC),
     layer1Label: effectLabel(NO_EFFECT),
+    /** 场景名 UTF-8 已用字节数（输入时实时更新） */
+    sceneNameBytes: 0,
+    /** 场景名上限（字节），来自协议 NAME_BYTES */
+    nameLimit: NAME_BYTES,
+    /** 场景名字节提示文案「已用 X / 24 字节」 */
+    nameByteLabel: nameByteLabel(""),
     /** 发送前校验的字段级错误；非空时阻止发送并在页面内联展示 */
     layerErrors: [] as Array<{ field: string; message: string }>,
     loopOptions: LOOP_OPTIONS,
@@ -126,7 +134,11 @@ Page({
       return;
     }
     const scene = result.scene;
-    this.setData({ sceneName: scene.name });
+    this.setData({
+      sceneName: scene.name,
+      sceneNameBytes: validateNameBytes(scene.name).bytes,
+      nameByteLabel: nameByteLabel(scene.name),
+    });
     // 从布局读取部位列表
     const parts: Array<{ stripId: number; partId: number; name: string; stepCount: number; loop: number; on: boolean }> = [];
     for (let stripId = 0; stripId < (state.stripCount || 1); stripId += 1) {
@@ -364,16 +376,29 @@ Page({
   /** 场景名输入。 */
   onSceneNameInput(e: any) {
     const name = e.detail.value as string;
-    this.setData({ sceneName: name });
+    const check = validateNameBytes(name);
+    this.setData({
+      sceneName: name,
+      sceneNameBytes: check.bytes,
+      nameByteLabel: nameByteLabel(name),
+      hint: check.ok ? "" : check.message,
+    });
   },
 
   /** 保存场景名。 */
   onSaveSceneName() {
+    const check = validateNameBytes(this.data.sceneName);
+    if (!check.ok) {
+      this.setData({ hint: `未发送：${check.message}` });
+      return;
+    }
     const session = getSession();
     void session.sceneName(this.data.sceneId, this.data.sceneName).then((r) => {
       if (r.kind === "ok") {
         this.setData({ hint: "场景名已保存" });
       } else {
+        // editFailureText 对 error 直接透传 message（编码器的 RangeError 带具体字节数），
+        // 不再被「保存失败：error」吞掉。
         this.setData({ hint: `保存失败：${editFailureText(r)}` });
       }
     });

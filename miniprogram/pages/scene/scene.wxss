@@ -45,6 +45,14 @@
 }
 .num-input { width: 200rpx; }
 
+.name-bytes {
+  margin-left: 12rpx;
+  font-size: 24rpx;
+  color: #8e8e93;
+  white-space: nowrap;
+}
+.name-bytes.over { color: #ff3b30; }
+
 .picker-text { font-size: 28rpx; color: #007aff; }
 
 .row-actions {
