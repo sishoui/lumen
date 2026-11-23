@@ -402,6 +402,7 @@ export class ControlSession {
         if (!commit.ok) return { kind: "ack-error", ack: commit };
         if (epochAtSend !== this.epoch) return { kind: "stale" };
         const state = await this.transport.readState().catch(() => this.latestState);
+        if (state) this.latestState = state;
         return { kind: "ok", state };
       } catch (err) {
         return { kind: "error", message: err instanceof Error ? err.message : String(err) };

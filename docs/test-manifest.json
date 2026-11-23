@@ -170,8 +170,13 @@
     },
     "miniprogram/tests/part-editor.test.ts": {
       "layer": "mp",
-      "covers": "部位编辑器（引脚分区）：段互斥校验、布局往返（MockTransport LayoutCommit）、相位模式、灯珠占用判断、readbackToParts",
-      "ticket": "#引脚分区"
+      "covers": "部位编辑器（引脚分区）：段互斥校验、布局往返（MockTransport LayoutCommit）、相位模式、灯珠占用判断、readbackToParts、断层提交连续重编号读回、提交后会话 State 刷新、读回失败提示",
+      "ticket": "#引脚分区/#23"
+    },
+    "scripts/user-flows/issue-23.mjs": {
+      "layer": "ui",
+      "covers": "工单 #23 用户流程：清空部位 0 保留部位 1 后提交，页面立即显示重编号的 1 个部位，返回再进入读回名字/段仍一致",
+      "ticket": "#23"
     },
     "miniprogram/tests/scene-editor.test.ts": {
       "layer": "mp",

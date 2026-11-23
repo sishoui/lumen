@@ -3,7 +3,7 @@
 import { getSession } from "../../utils/session/singleton";
 import {
   isLedOccupied, validateSegment, validateLayout, formatSegs, formatRange,
-  createEmptyLayout, readbackToParts, filterEmptyParts,
+  readbackToParts, planLayoutCommit, layoutCommitFeedback,
 } from "../../utils/part-editor";
 import { PHASE, MAX_PARTS, MAX_PART_SEGS } from "../../utils/protocol/constants";
 import type { LayoutPart } from "../../utils/protocol/types";
@@ -49,30 +49,31 @@ Page({
   onLoad(query: Record<string, string>) {
     const stripId = parseInt(query.stripId ?? "0", 10);
     this.setData({ stripId: Number.isFinite(stripId) ? stripId : 0 });
-    this.loadLayout();
+    void this.loadLayout();
   },
 
-  async loadLayout() {
+  /** 从设备读回布局并刷新页面；返回读回是否成功。 */
+  async loadLayout(): Promise<boolean> {
     const session = getSession();
     const state = session.deviceState;
     if (!state) {
       this.setData({ hint: "未连接设备，请先连接", loading: false });
-      return;
+      return false;
     }
     const ledCount = state.stripLedCounts[this.data.stripId] ?? 0;
     const partCount = state.partCounts[this.data.stripId] ?? 0;
     if (ledCount === 0) {
       this.setData({ hint: `链 ${this.data.stripId} 未分配灯珠`, loading: false });
-      return;
+      return false;
     }
     // 从设备重新查询布局（提交后读回最新）
     const res = await session.queryLayout(this.data.stripId);
-    const cached = res.kind === "ok" ? res.layout : session.layout[this.data.stripId];
-    const parts = readbackToParts(this.data.stripId, cached, Math.max(partCount, 1));
-    // 确保至少有一个部位
-    if (parts.length === 0) {
-      parts.push(...createEmptyLayout(this.data.stripId, 1));
-    }
+    const readbackOk = res.kind === "ok";
+    const parts = readbackToParts(
+      this.data.stripId,
+      readbackOk ? res.layout : (session.layout[this.data.stripId] ?? null),
+      Math.max(partCount, 1),
+    );
     const activePartId = 0;
     const activePart = parts[activePartId];
     this.setData({
@@ -86,6 +87,7 @@ Page({
       loading: false,
     });
     this.renderLedCells();
+    return readbackOk;
   },
 
   /** 渲染灯珠方格。 */
@@ -193,7 +195,7 @@ Page({
     const parts = this.data.parts;
     const activePartId = this.data.activePartId;
     const p = parts[activePartId];
-    const segs = p.segs.filter((_, i) => i !== segIdx);
+    const segs = p.segs.filter((_seg: [number, number], i: number) => i !== segIdx);
     parts[activePartId] = { ...p, segs: segs.slice(), segCount: segs.length };
     this.setData({
       parts,
@@ -230,31 +232,26 @@ Page({
   },
 
   /** 提交布局。 */
-  onCommitTap() {
-    const parts = filterEmptyParts(this.data.parts);
-    if (parts.length === 0) {
+  async onCommitTap(): Promise<void> {
+    const plan = planLayoutCommit(this.data.parts);
+    if (plan.length === 0) {
       this.setData({ hint: "没有已分配段的部位，无法提交" });
       return;
     }
     // 校验（整份校验，validateLayout 内部跨部位检查用 i<j，不会自重叠）
-    const verr = validateLayout(this.data.stripId, parts, this.data.ledCount);
+    const verr = validateLayout(this.data.stripId, plan, this.data.ledCount);
     if (verr) {
       this.setData({ hint: `校验失败：${verr}` });
       return;
     }
     this.setData({ hint: "提交中…", canCommit: false });
-    void getSession().layoutCommit(parts).then((result) => {
-      if (result.kind === "ok") {
-        this.setData({ hint: "布局已提交", canCommit: true });
-        void this.loadLayout();
-      } else if (result.kind === "ack-error") {
-        this.setData({ hint: `提交失败：结果码 ${result.ack.resultCode}`, canCommit: true });
-      } else if (result.kind === "stale") {
-        this.setData({ hint: "连接已变化，请重试", canCommit: true });
-      } else {
-        this.setData({ hint: `提交失败：${result.message}`, canCommit: true });
-      }
-    });
+    const result = await getSession().layoutCommit(plan);
+    if (result.kind !== "ok") {
+      this.setData({ hint: layoutCommitFeedback(result, false), canCommit: true });
+      return;
+    }
+    const readbackOk = await this.loadLayout();
+    this.setData({ hint: layoutCommitFeedback(result, readbackOk), canCommit: true });
   },
 
   /** 清空当前部位的所有段。 */

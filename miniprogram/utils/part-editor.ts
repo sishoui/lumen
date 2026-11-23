@@ -3,9 +3,9 @@
  * 供部位编辑器、场景编辑器、测试共同使用，避免业务逻辑散落页面。
  */
 
-import type { LayoutPart, LayoutReadback } from "../protocol/types";
-import type { DeviceState } from "../protocol/types";
-import { MAX_PARTS, MAX_PART_SEGS, MAX_LEDS } from "./protocol/constants";
+import type { LayoutPart, LayoutReadback } from "./protocol/types";
+import type { EditResult } from "./session/session";
+import { MAX_PARTS, MAX_PART_SEGS, RESULT } from "./protocol/constants";
 
 /** 判断某颗灯珠是否已被任何部位占用。 */
 export function isLedOccupied(ledIndex: number, parts: LayoutPart[]): boolean {
@@ -147,10 +147,62 @@ export function readbackToParts(stripId: number, readback: LayoutReadback | null
 }
 
 /**
- * 过滤掉 segCount=0 的部位（用于布局提交时跳过空槽位）。
+ * 生成可直接提交的布局计划（同一链的部位列表）。
+ *
+ * 空槽位（segs 为空）不参与提交；partId 连续重编号为 0..n−1，
+ * 因为设备按 LayoutWrite 声明的 part_count 校验 part_id，断层会被整条拒绝。
+ * segCount 以实际段数为准——设备要求声明的段全部写齐。
  */
-export function filterEmptyParts(parts: LayoutPart[]): LayoutPart[] {
-  return parts.filter((p) => p.segCount > 0 && p.segs.length > 0);
+export function planLayoutCommit(parts: LayoutPart[]): LayoutPart[] {
+  const plan: LayoutPart[] = [];
+  for (const p of parts) {
+    if (p.segs.length === 0) continue;
+    plan.push({
+      ...p,
+      partId: plan.length,
+      segCount: p.segs.length,
+      segs: p.segs.map(([s, e]) => [s, e] as [number, number]),
+    });
+  }
+  return plan;
+}
+
+const RESULT_LABELS: Record<number, string> = {
+  [RESULT.OK]: "成功",
+  [RESULT.INVALID_PARAM]: "参数无效",
+  [RESULT.UNKNOWN_COMMAND]: "未知命令",
+  [RESULT.BAD_CHECKSUM]: "校验和错误",
+  [RESULT.BAD_LENGTH]: "长度不符",
+  [RESULT.BUSY]: "设备忙",
+  [RESULT.STORAGE_FAILED]: "存储失败",
+  [RESULT.UNSUPPORTED_VERSION]: "版本不支持",
+  [RESULT.BAD_MAGIC]: "magic 不匹配",
+  [RESULT.INTERNAL_ERROR]: "设备内部错误",
+};
+
+/** 结果码 → 中文原因（含十六进制，便于对照协议文档）。 */
+function formatResultCode(code: number): string {
+  const hex = `0x${code.toString(16).padStart(2, "0").toUpperCase()}`;
+  return `${RESULT_LABELS[code] ?? "未知结果码"}（${hex}）`;
+}
+
+/**
+ * 提交结果 → 页面提示。
+ *
+ * 提交成功但读回失败必须与「布局已提交」区分：设备已接受，页面显示的却是旧值，
+ * 用户需要重连才能看到真实状态。
+ */
+export function layoutCommitFeedback(result: EditResult, readbackOk: boolean): string {
+  switch (result.kind) {
+    case "ok":
+      return readbackOk ? "布局已提交" : "已提交但读回失败，请重连查看设备实际状态";
+    case "ack-error":
+      return `提交失败：${formatResultCode(result.ack.resultCode)}`;
+    case "stale":
+      return "连接已变化，请重试";
+    default:
+      return `提交失败：${result.message}`;
+  }
 }
 
 /**
