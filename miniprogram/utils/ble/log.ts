@@ -39,7 +39,12 @@ export class FrameLog {
   }
 
   push(entry: Omit<FrameLogEntry, "id">): FrameLogEntry {
-    const full: FrameLogEntry = { ...entry, id: this.nextId };
+    const full: FrameLogEntry = {
+      ...entry,
+      // commandName 在入口补全：面板、复制、测试读到的是同一份，不靠展示层回填。
+      commandName: entry.commandName ?? (entry.command !== undefined ? commandName(entry.command) : undefined),
+      id: this.nextId,
+    };
     this.nextId += 1;
     this.entries.push(full);
     if (this.entries.length > this.capacity) {
@@ -47,7 +52,7 @@ export class FrameLog {
     }
 
     if (this.mirrorToConsole) {
-      const name = full.commandName ?? (full.command !== undefined ? commandName(full.command) : "");
+      const name = full.commandName ?? "";
       console.log(
         `[bt-light] ${full.dir.toUpperCase()} seq=${full.seq ?? "-"} cmd=${name} ${full.parsed} ${full.hex}`,
       );

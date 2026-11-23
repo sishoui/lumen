@@ -30,14 +30,20 @@ import {
   NAME_BYTES,
   LAYER_BYTES,
   LOOP_MAX,
+  STEP_MIN_MS,
+  STEP_MAX_MS,
   CMD,
   DEVICE_CMD,
   RESULT,
 } from "../protocol/constants";
 import { encodeFrame } from "../protocol/frame";
-import { parseState, parseStripConfigReport, parseDeviceInfoReport } from "../protocol/commands";
-import type { DeviceInfo, DeviceState, LinkState, SceneStepReport } from "../protocol/types";
+import { parseState } from "../protocol/commands";
+import { isValidSceneStepLayers } from "../protocol/layer-rules";
+import type { DeviceState } from "../protocol/types";
 import type { MockDeviceSpec } from "./mock-devices";
+
+/** 已清零 / 未写入的步骤在报告里的样子：时长 0，两层 9 字节全 0。 */
+const ZERO_LAYER = new Uint8Array(LAYER_BYTES);
 
 interface MockLayoutPart {
   partId: number;
@@ -69,7 +75,7 @@ export class MockDeviceRuntime {
   readonly spec: MockDeviceSpec;
   readonly scenario: MockScenario;
   private readonly timer: { setTimeout: (fn: () => void, ms: number) => number; clearTimeout: (h: number) => void };
-  private power: number;
+  private power: 0 | 1;
   private brightness: number;
   private stripPowerMask: number;
   private activeScene: number;
@@ -118,13 +124,18 @@ export class MockDeviceRuntime {
     }
   }
 
+  /** 与固件 state.strip_count 同义：已配置的链数（至少 1）。 */
+  private get stripCount(): number {
+    return this.spec.stripCounts.filter((n) => n > 0).length || 1;
+  }
+
   /** 读 State（32B）。 */
   readState(): Uint8Array {
     const state: DeviceState = {
       power: this.power,
       brightness: this.brightness,
       maxBrightness: this.spec.maxBrightness,
-      stripCount: this.spec.stripCounts.filter((n) => n > 0).length || 1,
+      stripCount: this.stripCount,
       stripPowerMask: this.stripPowerMask,
       activeScene: this.activeScene,
       layoutValid: this.layoutValid,
@@ -167,7 +178,7 @@ export class MockDeviceRuntime {
     const flakyDrop = this.scenario === "flaky" && seq % 3 === 0;
 
     // 先决定结果码
-    let result = RESULT.OK;
+    let result: number = RESULT.OK;
     switch (cmd) {
       case CMD.SET_POWER: {
         const on = payload[0] === 1;
@@ -220,7 +231,7 @@ export class MockDeviceRuntime {
         if (payload.length !== 2) { result = RESULT.INVALID_PARAM; break; }
         const stripId = payload[0];
         const partCount = payload[1];
-        if (stripId >= MAX_STRIPS || partCount > MAX_PARTS) { result = RESULT.INVALID_PARAM; break; }
+        if (stripId >= this.stripCount || partCount > MAX_PARTS) { result = RESULT.INVALID_PARAM; break; }
         // 暂存到 staging（Commit 前不生效）
         this.layoutStaging.set(stripId, []);
         this.partCounts[stripId] = partCount;
@@ -232,7 +243,10 @@ export class MockDeviceRuntime {
         const stripId = payload[0];
         const partId = payload[1];
         const nameLen = payload[2];
-        if (stripId >= MAX_STRIPS || partId >= MAX_PARTS || nameLen > NAME_BYTES) { result = RESULT.INVALID_PARAM; break; }
+        if (stripId >= this.stripCount || partId >= this.partCounts[stripId] || nameLen > NAME_BYTES) {
+          result = RESULT.INVALID_PARAM;
+          break;
+        }
         const nameBytes = payload.slice(3, 3 + nameLen);
         const name = new TextDecoder().decode(nameBytes);
         const segCount = payload[27];
@@ -255,7 +269,10 @@ export class MockDeviceRuntime {
         const segId = payload[2];
         const start = payload[3];
         const end = payload[4];
-        if (stripId >= MAX_STRIPS || partId >= MAX_PARTS || segId >= MAX_PART_SEGS) { result = RESULT.INVALID_PARAM; break; }
+        if (stripId >= this.stripCount || partId >= this.partCounts[stripId] || segId >= MAX_PART_SEGS) {
+          result = RESULT.INVALID_PARAM;
+          break;
+        }
         if (start > end) { result = RESULT.INVALID_PARAM; break; }
         const staging = this.layoutStaging.get(stripId);
         if (!staging || partId >= staging.length) { result = RESULT.INVALID_PARAM; break; }
@@ -278,11 +295,10 @@ export class MockDeviceRuntime {
         break;
       }
       case CMD.LAYOUT_COMMIT: {
-        // 把 staging 搬到 layout，重置 partCounts
+        // 把 staging 搬到 layout。part_count 是 LayoutWrite 声明的权威值，
+        // 不因某个部位没段而缩水（固件只在 QueryLayout 跳过 seg_count=0 的部位）。
         for (const [stripId, parts] of this.layoutStaging) {
-          const filtered = parts.filter((p) => p.segs.length > 0);
-          this.layout.set(stripId, filtered);
-          this.partCounts[stripId] = filtered.length;
+          this.layout.set(stripId, parts.filter((p) => p.segs.length > 0));
         }
         // 也保留已有的 layout（如果有未被 LAYOUT_WRITE 覆盖的链）
         this.layoutStaging.clear();
@@ -300,9 +316,9 @@ export class MockDeviceRuntime {
         const partId = payload[2];
         const stepCount = payload[3];
         const loop = payload[4];
-        const on = payload[5] === 1;
-        if (sceneId >= MAX_SCENES || stripId >= MAX_STRIPS || partId >= MAX_PARTS) { result = RESULT.INVALID_PARAM; break; }
-        if (stepCount > MAX_STEPS || loop > LOOP_MAX) { result = RESULT.INVALID_PARAM; break; }
+        const on = payload[5];
+        if (sceneId >= MAX_SCENES || stripId >= this.stripCount || partId >= MAX_PARTS) { result = RESULT.INVALID_PARAM; break; }
+        if (stepCount > MAX_STEPS || loop > LOOP_MAX || on > 1) { result = RESULT.INVALID_PARAM; break; }
         const sceneMap = this.scenes.get(sceneId);
         if (!sceneMap) { result = RESULT.INVALID_PARAM; break; }
         const key = `${stripId}:${partId}`;
@@ -312,15 +328,13 @@ export class MockDeviceRuntime {
           if (existing.head.stepCount !== stepCount) {
             existing.steps = [];
           }
-          existing.head = { stepCount, loop, on };
+          existing.head = { stepCount, loop, on: on === 1 };
         } else {
           sceneMap.set(key, {
-            head: { stepCount, loop, on },
+            head: { stepCount, loop, on: on === 1 },
             steps: [],
           });
         }
-        // 同步更新 partCounts，让 rebuild 能查到
-        this.partCounts[stripId] = Math.max(this.partCounts[stripId], partId + 1);
         break;
       }
       case CMD.SCENE_STEP: {
@@ -331,7 +345,8 @@ export class MockDeviceRuntime {
         const partId = payload[2];
         const stepIndex = payload[3];
         const durationMs = payload[4] | (payload[5] << 8);
-        if (sceneId >= MAX_SCENES || stripId >= MAX_STRIPS || partId >= MAX_PARTS || stepIndex >= MAX_STEPS) { result = RESULT.INVALID_PARAM; break; }
+        if (sceneId >= MAX_SCENES || stripId >= this.stripCount || partId >= MAX_PARTS || stepIndex >= MAX_STEPS) { result = RESULT.INVALID_PARAM; break; }
+        if (durationMs < STEP_MIN_MS || durationMs > STEP_MAX_MS) { result = RESULT.INVALID_PARAM; break; }
         const sceneMap = this.scenes.get(sceneId);
         if (!sceneMap) { result = RESULT.INVALID_PARAM; break; }
         const key = `${stripId}:${partId}`;
@@ -339,6 +354,8 @@ export class MockDeviceRuntime {
         if (!entry || stepIndex >= entry.head.stepCount) { result = RESULT.INVALID_PARAM; break; }
         const layer0 = payload.slice(6, 15);
         const layer1 = payload.slice(15, 24);
+        // 与固件同一份层形状校验（docs/protocol.md §9）：非法层不进 RAM。
+        if (!isValidSceneStepLayers(layer0, layer1)) { result = RESULT.INVALID_PARAM; break; }
         // 确保 steps 数组足够长
         while (entry.steps.length <= stepIndex) {
           entry.steps.push({
@@ -433,8 +450,15 @@ export class MockDeviceRuntime {
         const sceneMap = this.scenes.get(sceneId);
         const sceneName = this.sceneNames.get(sceneId) ?? "";
         if (sceneMap) {
-          // ScenePartReport + SceneStepReport for each part
-          for (const [key, entry] of sceneMap) {
+          // 固件按 strip 0..7、part 0..7 的固定顺序遍历；Map 的插入顺序不是契约。
+          const entries = Array.from(sceneMap.entries()).sort((a, b) => {
+            const [as, ap] = a[0].split(":").map(Number);
+            const [bs, bp] = b[0].split(":").map(Number);
+            return as - bs || ap - bp;
+          });
+          for (const [key, entry] of entries) {
+            // 0 步 = 本场景不演（固件 S10）：不报这个部位。
+            if (entry.head.stepCount === 0) continue;
             const [stripId, partId] = key.split(":").map(Number);
             const headBuf = new Uint8Array(6);
             headBuf[0] = sceneId;
@@ -444,17 +468,23 @@ export class MockDeviceRuntime {
             headBuf[4] = entry.head.loop;
             headBuf[5] = entry.head.on ? 1 : 0;
             frames.push(encodeFrame(DEVICE_CMD.SCENE_PART_REPORT, seq, headBuf));
-            // Steps
-            for (const [stepIdx, step] of entry.steps.entries()) {
+            // 报告 step_count 内的每一步；没写过的步骤按固件规则报「时长 0、两层全 0」。
+            for (let stepIdx = 0; stepIdx < entry.head.stepCount && stepIdx < MAX_STEPS; stepIdx += 1) {
+              const step = entry.steps[stepIdx];
               const stepBuf = new Uint8Array(SCENE_STEP_BYTES);
               stepBuf[0] = sceneId;
               stepBuf[1] = stripId;
               stepBuf[2] = partId;
               stepBuf[3] = stepIdx;
-              stepBuf[4] = step.durationMs & 0xff;
-              stepBuf[5] = (step.durationMs >> 8) & 0xff;
-              stepBuf.set(step.layer0, 6);
-              stepBuf.set(step.layer1, 15);
+              if (step) {
+                stepBuf[4] = step.durationMs & 0xff;
+                stepBuf[5] = (step.durationMs >> 8) & 0xff;
+                stepBuf.set(step.layer0, 6);
+                stepBuf.set(step.layer1, 15);
+              } else {
+                stepBuf.set(ZERO_LAYER, 6);
+                stepBuf.set(ZERO_LAYER, 15);
+              }
               frames.push(encodeFrame(DEVICE_CMD.SCENE_STEP_REPORT, seq, stepBuf));
             }
           }
@@ -476,7 +506,8 @@ export class MockDeviceRuntime {
 
   private deviceInfoBytes(): Uint8Array {
     const buf = new Uint8Array(DEVICE_INFO_BYTES);
-    const version = 0x0500;
+    // 固件版本 0x0100 = v1.0（docs/protocol.md §8.5）。
+    const version = 0x0100;
     buf[0] = version & 0xff;
     buf[1] = (version >> 8) & 0xff;
     // hw_id 6 字节

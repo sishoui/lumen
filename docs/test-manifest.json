@@ -177,6 +177,21 @@
       "layer": "mp",
       "covers": "场景编辑器（时间轴）：步骤时长校验、循环模式校验、ScenePart+SceneStep 往返、场景名读写、ActivateScene、越界 stepIndex 拒绝",
       "ticket": "#时间轴"
+    },
+    "miniprogram/tests/mock-parity.test.ts": {
+      "layer": "mp",
+      "covers": "Mock 与固件同形（#19）：LayoutPart/LayoutSeg 拒绝越界 part_id、ScenePart/SceneStep 只按 MAX_PARTS 拒绝、QueryScene 报告 step_count 内全部步骤（含清零步骤）、非法层参数返回 InvalidParam、DeviceInfoReport v1.0、帧日志 TX→RX 且带 commandName",
+      "ticket": "#19"
+    },
+    "scripts/user-flows/harness.mjs": {
+      "layer": "ui",
+      "covers": "L4 用户流程共用助手：自动化端口探测、automator 连接、页面 data 读取、页面/组件方法调用、路由等待、PASS/FAIL 计数与汇总输出",
+      "ticket": "#19"
+    },
+    "scripts/user-flows/issue-19.mjs": {
+      "layer": "ui",
+      "covers": "L4 演示模式与固件同形（#19）：控制页版本 v1.0、帧日志快照非空、每条有 commandName、同一 seq 的 TX 先于 RX",
+      "ticket": "#19"
     }
   }
 }
