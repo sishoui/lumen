@@ -11,6 +11,8 @@ import { LinkSubscription } from "../utils/session/link-subscription";
 import { MockTransport } from "../utils/ble/mock-transport";
 import { BleTransport } from "../utils/ble/ble-transport";
 import type { Transport } from "../utils/ble/transport";
+import type { FrameLog } from "../utils/ble/log";
+import { FrameLog as FrameLogCtor } from "../utils/ble/log";
 import type { WxApi } from "../utils/ble/wx-api";
 import { MOCK_DEVICES, DEVICE_CACHE_KEY } from "../utils/mock/mock-devices";
 import { mockModeEnabled } from "../utils/mock/mock-mode";
@@ -36,6 +38,7 @@ async function flushMicrotasks(rounds = 50): Promise<void> {
  */
 class ProbeTransport implements Transport {
   readonly persistsDeviceIdentity: boolean;
+  readonly logSource: FrameLog = new FrameLogCtor();
   private readonly autoRespond: boolean;
   private readonly keepListenersOnDestroy: boolean;
 

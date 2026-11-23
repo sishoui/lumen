@@ -7,6 +7,8 @@ import { decodeFrame, encodeFrame } from "../../utils/protocol/frame";
 import { cmdSceneName } from "../../utils/protocol/commands";
 import { CMD, DEVICE_CMD } from "../../utils/protocol/constants";
 import type { Transport } from "../../utils/ble/transport";
+import type { FrameLog } from "../../utils/ble/log";
+import { FrameLog as FrameLogCtor } from "../../utils/ble/log";
 import type { AdapterState, DeviceState, DiscoveredDevice, LinkState } from "../../utils/protocol/types";
 
 export interface SentRequest {
@@ -25,6 +27,8 @@ export class ScriptedTransport implements Transport {
   readonly sent: SentRequest[] = [];
   /** 默认按真实设备身份处理；测试要模拟演示设备时显式传 false。 */
   readonly persistsDeviceIdentity: boolean;
+  /** 占位日志源；脚本传输层本身不参与日志断言。 */
+  readonly logSource: FrameLog;
   private frameListeners: Array<(frame: Uint8Array) => void> = [];
   private linkListeners: Array<(state: LinkState) => void> = [];
   private adapterListeners: Array<(state: AdapterState) => void> = [];
@@ -37,6 +41,8 @@ export class ScriptedTransport implements Transport {
     opts: { persistsDeviceIdentity?: boolean } = {},
   ) {
     this.persistsDeviceIdentity = opts.persistsDeviceIdentity ?? true;
+    // 引入 FrameLog 但不需要行为：脚本传输层不通过日志断言验证。
+    this.logSource = new FrameLogCtor();
   }
 
   get linkState(): LinkState { return this._linkState; }

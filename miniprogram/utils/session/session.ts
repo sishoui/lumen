@@ -12,6 +12,7 @@
  */
 
 import type { Transport } from "../ble/transport";
+import type { FrameLog } from "../ble/log";
 import {
   parseLayoutReport, parseLayoutListEnd, parseStripConfigReport,
   parseScenePartReport, parseSceneStepReport, parseSceneListEnd, buildSceneReport,
@@ -143,6 +144,8 @@ export class ControlSession {
   get linkState(): LinkState { return this._linkState; }
   /** 当前传输层（只读，页面用来读 currentDeviceId / 挂监听）。 */
   get transportRef(): Transport { return this.transport; }
+  /** 公开日志源：页面/组件从这里读 TX/RX 帧，不触私有字段。 */
+  get logSource(): FrameLog { return this.transport.logSource; }
   get deviceState(): DeviceState | null { return this.latestState; }
   get deviceInfo(): DeviceInfo | null { return this.latestDeviceInfo; }
   get stripConfig(): StripConfig | null { return this.latestStripConfig; }

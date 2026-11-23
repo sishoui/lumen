@@ -10,6 +10,7 @@
  */
 
 import type { AdapterState, DeviceState, DiscoveredDevice, LinkState } from "../protocol/types";
+import type { FrameLog } from "./log";
 
 export interface Transport {
   /**
@@ -53,6 +54,9 @@ export interface Transport {
    * Mock 的虚拟设备不是用户的真机，写缓存会让下次冷启动误判成「有真机记录」。
    */
   readonly persistsDeviceIdentity: boolean;
+
+  /** 公开帧日志源（只读）。会话/页面通过它读 TX/RX，不触私有字段。 */
+  readonly logSource: FrameLog;
 
   /** 释放订阅与定时器；之后所有方法快速失败。 */
   destroy(): void;

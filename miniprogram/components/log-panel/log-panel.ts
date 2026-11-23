@@ -1,31 +1,58 @@
 /** 隐藏日志面板组件（200 帧环形缓冲 / 暂停 / 清空 / 复制）。 */
 
 import { getSession } from "../../utils/session/singleton";
+import type { FrameLog } from "../../utils/ble/log";
+
+interface LogPanelEntry {
+  id: number;
+  dir: "tx" | "rx";
+  seqText: string;
+  commandName: string;
+  hex: string;
+}
 
 Component({
   data: {
-    entries: [] as Array<{ id: number; dir: string; seqText: string; commandName: string; hex: string }>,
+    entries: [] as LogPanelEntry[],
     capacity: 200,
     paused: false,
   },
 
   lifetimes: {
     attached() {
-      this.refresh();
+      this.bindLog();
     },
     detached() {
-      if (this._off) this._off();
+      this.unbindLog();
     },
   },
 
   methods: {
+    /** 取当前会话的公开日志源；绑定追加监听；切换会话后旧监听自动失效。 */
+    bindLog() {
+      this.unbindLog();
+      const log: FrameLog = getSession().logSource;
+      this._log = log;
+      this.setData({ capacity: log.capacity });
+      this.refresh();
+      this._off = log.onAppend(() => {
+        if (!this.data.paused) this.refresh();
+      });
+    },
+
+    unbindLog() {
+      const off = this._off;
+      this._off = null;
+      this._log = null;
+      if (off) off();
+    },
+
     refresh() {
-      const session = getSession() as any;
-      const log = session.transport?.log;
+      const log = this._log;
       if (!log) return;
       const snapshot = log.snapshot();
       this.setData({
-        entries: snapshot.map((e: any) => ({
+        entries: snapshot.map((e) => ({
           id: e.id,
           dir: e.dir,
           seqText: e.seq !== undefined ? `seq=${e.seq}` : "",
@@ -34,11 +61,6 @@ Component({
         })),
         capacity: log.capacity,
       });
-      if (!this._off) {
-        this._off = log.onAppend(() => {
-          if (!this.data.paused) this.refresh();
-        });
-      }
     },
 
     onPause() {
@@ -46,18 +68,19 @@ Component({
     },
 
     onClear() {
-      const session = getSession() as any;
-      session.transport?.log?.clear();
+      this._log?.clear();
       this.setData({ entries: [] });
     },
 
     onCopy() {
+      // 行格式：DIR seq=<n> <commandName> <hex>；无 seq 的事件行不输出空 seq 段。
       const text = this.data.entries
-        .map((e) => `${e.dir.toUpperCase()} ${e.seqText} ${e.commandName} ${e.hex}`)
+        .map((e) => `${e.dir.toUpperCase()}${e.seqText ? ` ${e.seqText}` : ""} ${e.commandName} ${e.hex}`)
         .join("\n");
       wx.setClipboardData({ data: text });
     },
   },
 
   _off: null as (() => void) | null,
+  _log: null as FrameLog | null,
 });

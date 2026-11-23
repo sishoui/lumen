@@ -18,6 +18,7 @@ import {
   STATE_UUID,
   TX_UUID,
 } from "../protocol/constants";
+import { decodeFrame } from "../protocol/frame";
 import { bytesToHex } from "../protocol/hex";
 import { parseState } from "../protocol/commands";
 import { ChunkAssembler, chunkCapacityForMtu, chunkDataCapacity, chunkFrame } from "../protocol/chunk";
@@ -82,6 +83,15 @@ export class BleTransport implements Transport {
       const bytes = new Uint8Array(res.value);
       const result = this.assembler.push(bytes);
       if (result.kind === "frame") {
+        // RX 在重组完成后推：日志里看到的是完整逻辑帧，不是 notify 分片。
+        const decoded = decodeFrame(result.frame);
+        this.log.push({
+          ts: Date.now(), dir: "rx", hex: bytesToHex(result.frame),
+          command: decoded.ok ? decoded.command : undefined,
+          seq: decoded.ok ? decoded.seq : undefined,
+          parsed: decoded.ok ? `cmd=0x${decoded.command.toString(16)}` : "decode-fail",
+          ok: decoded.ok,
+        });
         for (const fn of this.frameListeners.slice()) {
           try { fn(result.frame); } catch { /* ignore */ }
         }
@@ -213,6 +223,15 @@ export class BleTransport implements Transport {
     if (this._currentDeviceId === null) {
       throw new Error("未连接");
     }
+    // TX 在分片前推：日志里看到的是完整逻辑帧，不是分片。
+    const decoded = decodeFrame(frame);
+    this.log.push({
+      ts: Date.now(), dir: "tx", hex: bytesToHex(frame),
+      command: decoded.ok ? decoded.command : undefined,
+      seq: decoded.ok ? decoded.seq : undefined,
+      parsed: decoded.ok ? `cmd=0x${decoded.command.toString(16)}` : "decode-fail",
+      ok: decoded.ok,
+    });
     const chunks = chunkFrame(frame, this._chunkCapacity);
     for (const chunk of chunks) {
       await this.writer.enqueue(chunk);
