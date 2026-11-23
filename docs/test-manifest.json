@@ -123,6 +123,11 @@
       "covers": "日志面板（#32）L2：FrameLog push/snapshot/clear/onAppend 环形缓冲、commandName 入口补全与未知命令回退、复制行格式 DIR seq=<n> <commandName> <hex>；MockTransport TX→RX 顺序与 commandName；BleTransport（fake wx）发送路径 chunk 前推 TX、接收重组完成后推 RX、同 seq TX 在 RX 前；ControlSession.logSource 公开只读属性且切换会话指向新 transport；暂停期间日志继续写、恢复后能看到新条目、清空后 snapshot 为空且新命令只产生新日志",
       "ticket": "#32"
     },
+    "miniprogram/tests/log-panel-resume.test.ts": {
+      "layer": "mp",
+      "covers": "日志面板组件行为（#32 回归）：暂停期间 append 不刷新（entries 冻结）、恢复后立即刷新看到暂停期间新增条目、多次 bindLog 不叠加订阅（恢复一次只刷新一次）；通过 Component 桩 + setSession 注入可控会话，断言用户可观察行为",
+      "ticket": "#32"
+    },
     "miniprogram/tests/log.test.ts": {
       "layer": "mp",
       "covers": "帧日志（FrameLog / Formatter）：push 返回带 id 的完整条目、commandName 入口补全、未知命令回退到 0xXX、无 command 的事件行不补全、环形缓冲裁剪、clear 后 snapshot 为空、onAppend 订阅与退订；复制行格式 DIR seq=<n> <commandName> <hex>（与 log-panel.ts onCopy 一致的契约）",

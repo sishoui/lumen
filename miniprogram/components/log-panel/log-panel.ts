@@ -64,7 +64,11 @@ Component({
     },
 
     onPause() {
-      this.setData({ paused: !this.data.paused });
+      const next = !this.data.paused;
+      this.setData({ paused: next });
+      // 恢复时立即刷新，把暂停期间新增的条目补到面板上；
+      // 仍然暂停时不动 UI，保持「日志继续写、面板冻结」的语义。
+      if (!next) this.refresh();
     },
 
     onClear() {
